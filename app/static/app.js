@@ -11,10 +11,26 @@ let myUsername = localStorage.getItem('username') || '';
 let myThemeColor = '#5b8cff';
 let myWallpaper = '';
 
-function applySettings(color, wp) {
+function applySettings(color, wp, fontFam, fontSize) {
   document.documentElement.style.setProperty('--user-theme', color);
-  document.getElementById('themeColor').value = color;
-  document.getElementById('wallpaperUrl').value = wp || '';
+  document.documentElement.style.setProperty('--user-font', fontFam || 'Inter');
+  document.documentElement.style.setProperty('--user-font-size', fontSize || '15px');
+  
+  const themeInput = document.getElementById('themeInput');
+  const wallpaperInput = document.getElementById('wallpaperInput');
+  const fontFamilyInput = document.getElementById('fontFamilyInput');
+  const fontSzInput = document.getElementById('fontSizeInput');
+  const fontSizeDisplay = document.getElementById('fontSizeDisplay');
+
+  if (themeInput) themeInput.value = color;
+  if (wallpaperInput) wallpaperInput.value = wp || '';
+  if (fontFamilyInput) fontFamilyInput.value = fontFam || 'Inter';
+  if (fontSzInput) fontSzInput.value = parseInt(fontSize) || 15;
+  if (fontSizeDisplay) fontSizeDisplay.innerText = `${parseInt(fontSize) || 15}px`;
+
+  document.body.style.fontFamily = `var(--user-font), ui-sans-serif, system-ui, sans-serif`;
+  document.body.style.fontSize = `var(--user-font-size)`;
+
   if (wp) {
     document.body.style.backgroundImage = `url(${wp})`;
     document.body.style.backgroundSize = 'cover';
@@ -287,12 +303,12 @@ async function openSocket() {
   ws.onclose = () => setStatus('Realtime disconnected');
 }
 
-async function enterApp(username, adminFlag, theme, wallpaper) {
+async function enterApp(username, adminFlag, theme, wallpaper, fontFamily, fontSize) {
   myUsername = username;
   isAdmin = adminFlag;
-  myThemeColor = theme || '#5b8cff';
+  myThemeColor = theme || '#ffffff';
   myWallpaper = wallpaper || '';
-  applySettings(myThemeColor, myWallpaper);
+  applySettings(myThemeColor, myWallpaper, fontFamily, fontSize);
 
   document.getElementById('welcome').textContent = `Hi ${username}`;
   authCard.style.display = 'none';
@@ -318,7 +334,7 @@ document.getElementById('loginBtn').onclick = async () => {
     const body = { username: usernameInput.value.trim().toLowerCase(), password: passwordInput.value };
     const data = await api('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     token = data.token; localStorage.setItem('token', token); localStorage.setItem('username', data.username); saveRememberedDetails();
-    await enterApp(data.username, data.is_admin, data.theme_color, data.wallpaper_url);
+    await enterApp(data.username, data.is_admin, data.theme_color, data.wallpaper_url, data.font_family, data.font_size);
   } catch (e) { setStatus(e.message); }
 };
 
@@ -329,7 +345,7 @@ document.getElementById('registerBtn').onclick = async () => {
     const body = { username: usernameInput.value.trim().toLowerCase(), password: passwordInput.value, invite_code: inviteInput.value.trim() || null, owner_key: ownerKey || null };
     const data = await api('/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     token = data.token; localStorage.setItem('token', token); localStorage.setItem('username', data.username); saveRememberedDetails();
-    await enterApp(data.username, data.is_admin, data.theme_color, data.wallpaper_url);
+    await enterApp(data.username, data.is_admin, data.theme_color, data.wallpaper_url, data.font_family, data.font_size);
   } catch (e) { setStatus(e.message); }
 };
 
@@ -354,14 +370,31 @@ if (emojiBtn && emojiPicker) {
 }
 
 document.getElementById('saveThemeBtn').onclick = async () => {
-  const c = document.getElementById('themeColor').value;
-  const w = document.getElementById('wallpaperUrl').value.trim();
+  const c = document.getElementById('themeInput').value;
+  const w = document.getElementById('wallpaperInput').value.trim();
+  const f = document.getElementById('fontFamilyInput').value;
+  const fs = document.getElementById('fontSizeInput').value + 'px';
   try {
-    await api('/api/settings', { method:'POST', headers:{'Content-Type':'application/json', ...authHeaders()}, body: JSON.stringify({theme_color: c, wallpaper_url: w || null})});
-    applySettings(c, w);
+    await api('/api/settings', { method:'POST', headers:{'Content-Type':'application/json', ...authHeaders()}, body: JSON.stringify({theme_color: c, wallpaper_url: w || null, font_family: f, font_size: fs})});
+    applySettings(c, w, f, fs);
     setStatus('Settings saved');
   } catch(e) { setStatus(e.message); }
 };
+
+const fontSlider = document.getElementById('fontSizeInput');
+const fontDisplay = document.getElementById('fontSizeDisplay');
+if (fontSlider && fontDisplay) {
+  fontSlider.addEventListener('input', (e) => {
+    fontDisplay.innerText = `${e.target.value}px`;
+  });
+}
+
+textInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    document.getElementById('sendBtn').click();
+  }
+});
 
 document.getElementById('sendBtn').onclick = () => {
   const txt = textInput.value.trim();
@@ -466,7 +499,7 @@ async function autoLogin() {
   if (!token) return;
   try {
     const me = await api('/api/me', { headers: authHeaders() });
-    await enterApp(me.username, me.is_admin, me.theme_color, me.wallpaper_url);
+    await enterApp(me.username, me.is_admin, me.theme_color, me.wallpaper_url, me.font_family, me.font_size);
   } catch {
     localStorage.removeItem('token');
   }

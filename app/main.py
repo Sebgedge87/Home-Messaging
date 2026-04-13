@@ -116,6 +116,8 @@ class PasswordResetRequest(BaseModel):
 class SettingsUpdate(BaseModel):
     theme_color: str | None = None
     wallpaper_url: str | None = None
+    font_family: str | None = None
+    font_size: str | None = None
 
 
 
@@ -217,6 +219,10 @@ def init_db() -> None:
             conn.execute("ALTER TABLE users ADD COLUMN theme_color TEXT DEFAULT '#5b8cff'")
         if not column_exists(conn, "users", "wallpaper_url"):
             conn.execute("ALTER TABLE users ADD COLUMN wallpaper_url TEXT")
+        if not column_exists(conn, "users", "font_family"):
+            conn.execute("ALTER TABLE users ADD COLUMN font_family TEXT DEFAULT 'Inter'")
+        if not column_exists(conn, "users", "font_size"):
+            conn.execute("ALTER TABLE users ADD COLUMN font_size TEXT DEFAULT '15px'")
 
         general_id = ensure_general_group(conn)
         users = conn.execute("SELECT id FROM users").fetchall()
@@ -287,14 +293,14 @@ def config() -> dict[str, str]:
 @app.get("/api/me")
 def me(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     with db() as conn:
-        row = conn.execute("SELECT theme_color, wallpaper_url FROM users WHERE id = ?", (user["id"],)).fetchone()
+        row = conn.execute("SELECT theme_color, wallpaper_url, font_family, font_size FROM users WHERE id = ?", (user["id"],)).fetchone()
     d = dict(row) if row else {}
-    return {**user, "theme_color": d.get("theme_color", "#5b8cff"), "wallpaper_url": d.get("wallpaper_url")}
+    return {**user, "theme_color": d.get("theme_color", "#5b8cff"), "wallpaper_url": d.get("wallpaper_url"), "font_family": d.get("font_family", "Inter"), "font_size": d.get("font_size", "15px")}
 
 @app.post("/api/settings")
 def update_settings(body: SettingsUpdate, user: dict[str, Any] = Depends(current_user)) -> dict[str, str]:
     with db() as conn:
-        conn.execute("UPDATE users SET theme_color = ?, wallpaper_url = ? WHERE id = ?", (body.theme_color, body.wallpaper_url, user["id"]))
+        conn.execute("UPDATE users SET theme_color = ?, wallpaper_url = ?, font_family = ?, font_size = ? WHERE id = ?", (body.theme_color, body.wallpaper_url, body.font_family, body.font_size, user["id"]))
     return {"status": "updated"}
 
 
@@ -341,7 +347,7 @@ def register(body: AuthRequest) -> dict[str, Any]:
 
         is_admin = is_first_user or owner_override
         token = create_token(user_id, username_norm, is_admin)
-        return {"token": token, "username": username_norm, "is_admin": is_admin, "theme_color": "#5b8cff", "wallpaper_url": None}
+        return {"token": token, "username": username_norm, "is_admin": is_admin, "theme_color": "#5b8cff", "wallpaper_url": None, "font_family": "Inter", "font_size": "15px"}
 
 
 @app.post("/api/login")
@@ -352,7 +358,7 @@ def login(body: AuthRequest) -> dict[str, Any]:
             raise HTTPException(status_code=401, detail="Invalid credentials")
         token = create_token(row["id"], row["username"], bool(row["is_admin"]))
         d = dict(row)
-        return {"token": token, "username": d["username"], "is_admin": bool(d["is_admin"]), "theme_color": d.get("theme_color", "#5b8cff"), "wallpaper_url": d.get("wallpaper_url")}
+        return {"token": token, "username": d["username"], "is_admin": bool(d["is_admin"]), "theme_color": d.get("theme_color", "#5b8cff"), "wallpaper_url": d.get("wallpaper_url"), "font_family": d.get("font_family", "Inter"), "font_size": d.get("font_size", "15px")}
 
 
 @app.post("/api/invites", response_model=InviteResponse)
