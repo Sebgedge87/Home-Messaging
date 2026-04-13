@@ -44,13 +44,13 @@
     #authCard { max-width: 440px; margin: 40px auto; }
     h2 { margin: 0 0 16px; letter-spacing: .2px; }
     .card {
-      background: var(--card);
+      background: color-mix(in srgb, var(--card) calc(var(--bg-opacity, 0.85) * 100%), transparent);
       border: 1px solid var(--card-border);
       border-radius: 16px;
       padding: 18px;
       box-shadow: 0 12px 28px rgba(0,0,0,.25);
       margin-bottom: 14px;
-      backdrop-filter: blur(4px);
+      backdrop-filter: blur(12px);
     }
     .row { display: flex; gap: 8px; flex-wrap: wrap; }
     input, button {
@@ -237,18 +237,16 @@
         <strong>Conversations</strong>
         <div id="groupsList" style="margin-top:8px"></div>
         <button id="createGroupBtn" style="display:none; width:100%; margin-top:12px;">+ Create Group</button>
-        
-        <strong style="display:block; margin-top:24px;">Contacts</strong>
-        <div id="contactsList" style="margin-top:12px"></div>
-      </div>
-
-      <div style="position:relative; display:flex; flex-direction:column;">
-        <div class="row" style="justify-content:space-between; align-items:center">
-          <strong id="groupTitle">Conversation</strong>
-          <button id="inviteBtn" style="display:none">Create Invite</button>
+  <div id="chatCard" style="display:none">
+      <div class="card">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h2 id="groupTitle">Conversation</h2>
+          <div style="display:flex; gap:8px;">
+             <button id="deleteGroupBtn" style="display:none; background:var(--danger); color:white; border:none; padding:6px 12px; font-size:13px;">Delete Room 🗑️</button>
+             <button id="inviteBtn" style="display:none">Create Invite</button>
+          </div>
         </div>
-        <div id="inviteOut"></div>
-        <div id="messages" style="flex:1;"></div>
+        <div id="messages" style="height:500px; overflow-y:auto; margin-bottom:16px; display:flex; flex-direction:column; gap:8px; padding-right:8px;"></div>
         <small id="replyInfo"></small>
         
         <div id="gifPicker" class="panel" style="display:none; position:absolute; bottom:64px; right:0; width:100%; max-width:280px; max-height:300px; overflow-y:auto; z-index:100; box-shadow:0 8px 24px rgba(0,0,0,0.2);">
@@ -325,11 +323,15 @@
             <option value="Courier New">Courier New (Monospace)</option>
             <option value="Comic Sans MS">Comic Sans (Playful)</option>
           </select>
-          
-          <small style="color:var(--muted); display:block; margin:12px 0 4px">Font Size (<span id="fontSizeDisplay">15px</span>)</small>
-          <input type="range" id="fontSizeInput" min="12" max="24" value="15" style="width:100%" />
+          <div style="margin-bottom:20px;">
+            <small style="color:var(--muted); display:block; margin-bottom:8px">Font Size (<span id="fontSizeDisplay">15px</span>)</small>
+            <input type="range" id="fontSizeInput" min="12" max="24" step="1" style="width:100%" />
+          </div>
 
-          <button id="saveThemeBtn" class="btn-primary" style="width:100%; margin-top:16px;">Save Settings</button>
+          <div style="margin-bottom:20px;">
+            <small style="color:var(--muted); display:block; margin-bottom:8px">Glass Transparency (<span id="opacityDisplay">85%</span>)</small>
+            <input type="range" id="opacityInput" min="0" max="1" step="0.01" value="0.85" style="width:100%" />
+          </div><button id="saveThemeBtn" class="btn-primary" style="width:100%; margin-top:16px;">Save Settings</button>
         </div>
 
       <button id="logoutBtn" style="width:100%; margin-top:12px; background:var(--danger);">Logout</button>

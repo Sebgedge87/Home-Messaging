@@ -122,6 +122,7 @@ class SettingsUpdate(BaseModel):
     theme_bg: str | None = None
     theme_text: str | None = None
     theme_theirs: str | None = None
+    bg_opacity: float | None = 0.85
 
 
 
@@ -239,6 +240,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE users ADD COLUMN theme_text TEXT DEFAULT '#f4f4f5'")
         if not column_exists(conn, "users", "theme_theirs"):
             conn.execute("ALTER TABLE users ADD COLUMN theme_theirs TEXT DEFAULT '#18181b'")
+        if not column_exists(conn, "users", "bg_opacity"):
+            conn.execute("ALTER TABLE users ADD COLUMN bg_opacity REAL DEFAULT 0.85")
 
         general_id = ensure_general_group(conn)
         users = conn.execute("SELECT id FROM users").fetchall()
@@ -355,14 +358,14 @@ def config() -> dict[str, str]:
 @app.get("/api/me")
 def me(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
     with db() as conn:
-        row = conn.execute("SELECT theme_color, wallpaper_url, font_family, font_size, theme_bg, theme_text, theme_theirs FROM users WHERE id = ?", (user["id"],)).fetchone()
+        row = conn.execute("SELECT theme_color, wallpaper_url, font_family, font_size, theme_bg, theme_text, theme_theirs, bg_opacity FROM users WHERE id = ?", (user["id"],)).fetchone()
     d = dict(row) if row else {}
-    return {**user, "theme_color": d.get("theme_color", "#5b8cff"), "wallpaper_url": d.get("wallpaper_url"), "font_family": d.get("font_family", "Inter"), "font_size": d.get("font_size", "15px"), "theme_bg": d.get("theme_bg", "#09090b"), "theme_text": d.get("theme_text", "#f4f4f5"), "theme_theirs": d.get("theme_theirs", "#18181b")}
+    return {**user, "theme_color": d.get("theme_color", "#5b8cff"), "wallpaper_url": d.get("wallpaper_url"), "font_family": d.get("font_family", "Inter"), "font_size": d.get("font_size", "15px"), "theme_bg": d.get("theme_bg", "#09090b"), "theme_text": d.get("theme_text", "#f4f4f5"), "theme_theirs": d.get("theme_theirs", "#18181b"), "bg_opacity": d.get("bg_opacity", 0.85)}
 
 @app.post("/api/settings")
 def update_settings(body: SettingsUpdate, user: dict[str, Any] = Depends(current_user)) -> dict[str, str]:
     with db() as conn:
-        conn.execute("UPDATE users SET theme_color = ?, wallpaper_url = ?, font_family = ?, font_size = ?, theme_bg = ?, theme_text = ?, theme_theirs = ? WHERE id = ?", (body.theme_color, body.wallpaper_url, body.font_family, body.font_size, body.theme_bg, body.theme_text, body.theme_theirs, user["id"]))
+        conn.execute("UPDATE users SET theme_color = ?, wallpaper_url = ?, font_family = ?, font_size = ?, theme_bg = ?, theme_text = ?, theme_theirs = ?, bg_opacity = ? WHERE id = ?", (body.theme_color, body.wallpaper_url, body.font_family, body.font_size, body.theme_bg, body.theme_text, body.theme_theirs, body.bg_opacity, user["id"]))
     return {"status": "updated"}
 
 
@@ -409,7 +412,7 @@ def register(body: AuthRequest) -> dict[str, Any]:
 
         is_admin = is_first_user or owner_override
         token = create_token(user_id, username_norm, is_admin)
-        return {"token": token, "username": username_norm, "is_admin": is_admin, "theme_color": "#5b8cff", "wallpaper_url": None, "font_family": "Inter", "font_size": "15px", "theme_bg": "#09090b", "theme_text": "#f4f4f5", "theme_theirs": "#18181b"}
+        return {"token": token, "username": username_norm, "is_admin": is_admin, "theme_color": "#5b8cff", "wallpaper_url": None, "font_family": "Inter", "font_size": "15px", "theme_bg": "#09090b", "theme_text": "#f4f4f5", "theme_theirs": "#18181b", "bg_opacity": 0.85}
 
 
 @app.post("/api/login")
@@ -420,7 +423,7 @@ def login(body: AuthRequest) -> dict[str, Any]:
             raise HTTPException(status_code=401, detail="Invalid credentials")
         token = create_token(row["id"], row["username"], bool(row["is_admin"]))
         d = dict(row)
-        return {"token": token, "username": d["username"], "is_admin": bool(d["is_admin"]), "theme_color": d.get("theme_color", "#5b8cff"), "wallpaper_url": d.get("wallpaper_url"), "font_family": d.get("font_family", "Inter"), "font_size": d.get("font_size", "15px"), "theme_bg": d.get("theme_bg", "#09090b"), "theme_text": d.get("theme_text", "#f4f4f5"), "theme_theirs": d.get("theme_theirs", "#18181b")}
+        return {"token": token, "username": d["username"], "is_admin": bool(d["is_admin"]), "theme_color": d.get("theme_color", "#5b8cff"), "wallpaper_url": d.get("wallpaper_url"), "font_family": d.get("font_family", "Inter"), "font_size": d.get("font_size", "15px"), "theme_bg": d.get("theme_bg", "#09090b"), "theme_text": d.get("theme_text", "#f4f4f5"), "theme_theirs": d.get("theme_theirs", "#18181b"), "bg_opacity": d.get("bg_opacity", 0.85)}
 
 
 @app.post("/api/invites", response_model=InviteResponse)
@@ -514,6 +517,23 @@ def create_group(body: GroupCreate, user: dict[str, Any] = Depends(current_user)
         gid = int(cur.lastrowid)
         conn.execute("INSERT OR IGNORE INTO group_members (group_id, user_id, added_at) VALUES (?, ?, ?)", (gid, user["id"], now))
         return {"id": gid, "name": body.name.strip(), "is_broadcast": body.is_broadcast}
+
+
+@app.delete("/api/groups/{group_id}")
+def delete_group(group_id: int, user: dict[str, Any] = Depends(current_user)):
+    if not user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Admin only")
+    with db() as conn:
+        res = conn.execute("SELECT name FROM groups WHERE id = ?", (group_id,)).fetchone()
+        if not res:
+            raise HTTPException(status_code=404, detail="Group not found")
+        if res["name"] == "General":
+            raise HTTPException(status_code=400, detail="Cannot delete General group")
+        
+        conn.execute("DELETE FROM messages WHERE group_id = ?", (group_id,))
+        conn.execute("DELETE FROM group_members WHERE group_id = ?", (group_id,))
+        conn.execute("DELETE FROM groups WHERE id = ?", (group_id,))
+    return {"status": "deleted"}
 
 
 @app.post("/api/groups/{group_id}/members")

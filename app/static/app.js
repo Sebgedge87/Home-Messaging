@@ -11,13 +11,14 @@ let myUsername = localStorage.getItem('username') || '';
 let myThemeColor = '#5b8cff';
 let myWallpaper = '';
 
-function applySettings(color, wp, fontFam, fontSize, themeBg, themeText, themeTheirs) {
+function applySettings(color, wp, fontFam, fontSize, themeBg, themeText, themeTheirs, bgOpacity) {
   document.documentElement.style.setProperty('--user-theme', color);
   document.documentElement.style.setProperty('--user-font', fontFam || 'Inter');
   document.documentElement.style.setProperty('--user-font-size', fontSize || '15px');
   document.documentElement.style.setProperty('--bg', themeBg || '#09090b');
   document.documentElement.style.setProperty('--text', themeText || '#f4f4f5');
   document.documentElement.style.setProperty('--theirs-bg', themeTheirs || '#18181b');
+  document.documentElement.style.setProperty('--bg-opacity', bgOpacity ?? 0.85);
   
   const themeInput = document.getElementById('themeInput');
   const bgInput = document.getElementById('bgInput');
@@ -27,6 +28,8 @@ function applySettings(color, wp, fontFam, fontSize, themeBg, themeText, themeTh
   const fontFamilyInput = document.getElementById('fontFamilyInput');
   const fontSzInput = document.getElementById('fontSizeInput');
   const fontSizeDisplay = document.getElementById('fontSizeDisplay');
+  const opacityInput = document.getElementById('opacityInput');
+  const opacityDisplay = document.getElementById('opacityDisplay');
 
   if (themeInput) themeInput.value = color;
   if (bgInput) bgInput.value = themeBg || '#09090b';
@@ -36,6 +39,8 @@ function applySettings(color, wp, fontFam, fontSize, themeBg, themeText, themeTh
   if (fontFamilyInput) fontFamilyInput.value = fontFam || 'Inter';
   if (fontSzInput) fontSzInput.value = parseInt(fontSize) || 15;
   if (fontSizeDisplay) fontSizeDisplay.innerText = `${parseInt(fontSize) || 15}px`;
+  if (opacityInput) opacityInput.value = bgOpacity ?? 0.85;
+  if (opacityDisplay) opacityDisplay.innerText = `${Math.round((bgOpacity ?? 0.85) * 100)}%`;
 
   document.body.style.fontFamily = `var(--user-font), ui-sans-serif, system-ui, sans-serif`;
   document.body.style.fontSize = `var(--user-font-size)`;
@@ -174,6 +179,7 @@ function renderGroups(groups) {
     b.onclick = async () => {
       currentGroupId = g.id;
       groupTitleEl.textContent = `Conversation: ${g.name}`;
+      document.getElementById('deleteGroupBtn').style.display = (isAdmin && g.name !== 'General' && !g.name.includes(':')) ? 'inline-block' : 'none';
       await loadMessages();
     };
     groupsEl.appendChild(b);
@@ -377,12 +383,12 @@ async function openSocket() {
   ws.onclose = () => setStatus('Realtime disconnected');
 }
 
-async function enterApp(username, adminFlag, theme, wallpaper, fontFamily, fontSize, themeBg, themeText, themeTheirs) {
+async function enterApp(username, adminFlag, theme, wallpaper, fontFamily, fontSize, themeBg, themeText, themeTheirs, bgOpacity) {
   myUsername = username;
   isAdmin = adminFlag;
   myThemeColor = theme || '#ffffff';
   myWallpaper = wallpaper || '';
-  applySettings(myThemeColor, myWallpaper, fontFamily, fontSize, themeBg, themeText, themeTheirs);
+  applySettings(myThemeColor, myWallpaper, fontFamily, fontSize, themeBg, themeText, themeTheirs, bgOpacity);
 
   document.getElementById('welcome').textContent = `Hi ${username}`;
   authCard.style.display = 'none';
@@ -409,7 +415,7 @@ document.getElementById('loginBtn').onclick = async () => {
     const body = { username: usernameInput.value.trim().toLowerCase(), password: passwordInput.value };
     const data = await api('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     token = data.token; localStorage.setItem('token', token); localStorage.setItem('username', data.username); saveRememberedDetails();
-    await enterApp(data.username, data.is_admin, data.theme_color, data.wallpaper_url, data.font_family, data.font_size, data.theme_bg, data.theme_text, data.theme_theirs);
+    await enterApp(data.username, data.is_admin, data.theme_color, data.wallpaper_url, data.font_family, data.font_size, data.theme_bg, data.theme_text, data.theme_theirs, data.bg_opacity);
   } catch (e) { setStatus(e.message); }
 };
 
@@ -420,7 +426,7 @@ document.getElementById('registerBtn').onclick = async () => {
     const body = { username: usernameInput.value.trim().toLowerCase(), password: passwordInput.value, invite_code: inviteInput.value.trim() || null, owner_key: ownerKey || null };
     const data = await api('/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     token = data.token; localStorage.setItem('token', token); localStorage.setItem('username', data.username); saveRememberedDetails();
-    await enterApp(data.username, data.is_admin, data.theme_color, data.wallpaper_url, data.font_family, data.font_size, data.theme_bg, data.theme_text, data.theme_theirs);
+    await enterApp(data.username, data.is_admin, data.theme_color, data.wallpaper_url, data.font_family, data.font_size, data.theme_bg, data.theme_text, data.theme_theirs, data.bg_opacity);
   } catch (e) { setStatus(e.message); }
 };
 
@@ -535,9 +541,10 @@ document.getElementById('saveThemeBtn').onclick = async () => {
       font_size: fs,
       theme_bg: b,
       theme_text: t,
-      theme_theirs: th
+      theme_theirs: th,
+      bg_opacity: parseFloat(document.getElementById('opacityInput').value)
     })});
-    applySettings(c, w, f, fs, b, t, th);
+    applySettings(c, w, f, fs, b, t, th, parseFloat(document.getElementById('opacityInput').value));
     setStatus('Settings saved');
     document.getElementById('navChatBtn')?.click();
   } catch(e) { setStatus(e.message); }
@@ -595,6 +602,15 @@ const fontDisplay = document.getElementById('fontSizeDisplay');
 if (fontSlider && fontDisplay) {
   fontSlider.addEventListener('input', (e) => {
     fontDisplay.innerText = `${e.target.value}px`;
+  });
+}
+
+const opacitySlider = document.getElementById('opacityInput');
+const opacityDisplay = document.getElementById('opacityDisplay');
+if (opacitySlider && opacityDisplay) {
+  opacitySlider.addEventListener('input', (e) => {
+    document.documentElement.style.setProperty('--bg-opacity', e.target.value);
+    opacityDisplay.innerText = `${Math.round(e.target.value * 100)}%`;
   });
 }
 
@@ -773,11 +789,21 @@ async function autoLogin() {
   if (!token) return;
   try {
     const me = await api('/api/me', { headers: authHeaders() });
-    await enterApp(me.username, me.is_admin, me.theme_color, me.wallpaper_url, me.font_family, me.font_size, me.theme_bg, me.theme_text, me.theme_theirs);
+    await enterApp(me.username, me.is_admin, me.theme_color, me.wallpaper_url, me.font_family, me.font_size, me.theme_bg, me.theme_text, me.theme_theirs, me.bg_opacity);
   } catch {
     localStorage.removeItem('token');
   }
 }
+
+document.getElementById('deleteGroupBtn').onclick = async () => {
+    if (!currentGroupId) return;
+    const isConfirm = await showModal({ title: 'Delete Room', message: 'Permanently purge this room and all its messages?', isConfirm: true });
+    if (!isConfirm) return;
+    try {
+        await api(`/api/groups/${currentGroupId}`, { method: 'DELETE', headers: authHeaders() });
+        location.reload(); 
+    } catch(e) { setStatus(e.message); }
+};
 
 loadRememberedDetails();
 initAuthHints();
