@@ -75,3 +75,5 @@ Use a Trusted Web Activity (TWA) or Capacitor wrapper pointed at your hosted URL
 - Push notifications require HTTPS in production.
 
 - Optional recovery: set `OWNER_SETUP_KEY` to allow owner-admin registration without invite (use only for household owner and keep secret).
+
+- Password hashing uses `pbkdf2_sha256` by default (portable on Railway without native bcrypt builds).
