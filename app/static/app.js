@@ -630,7 +630,12 @@ document.getElementById('createGroupBtn').onclick = async () => {
   try {
     const contacts = await api('/api/contacts', { headers: authHeaders() });
     contacts.forEach(c => {
-      listEl.innerHTML += `<label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" value="${c.username}" class="builder-user-check"> ${c.username}</label>`;
+      listEl.innerHTML += `
+        <label style="display:flex; align-items:center; gap:12px; padding:10px 14px; background:var(--card); border:1px solid var(--card-border); border-radius:8px; cursor:pointer;">
+          <input type="checkbox" value="${c.username}" class="builder-user-check" style="width:18px; height:18px; margin:0;">
+          <span style="font-weight:500; font-size:15px; color:var(--text);">${c.username}</span>
+        </label>
+      `;
     });
   } catch(e) {}
 };

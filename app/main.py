@@ -302,14 +302,49 @@ def health() -> dict[str, str]:
 
 
 import urllib.request
+import re
+from urllib.parse import urlparse
+
 @app.get("/api/proxy-image")
 def proxy_image(url: str = Query(...)):
-    def iterfile():
+    try:
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req) as resp:
+        resp = urllib.request.urlopen(req)
+        content_type = resp.headers.get_content_type()
+        
+        if content_type.startswith("text/html"):
+            html = resp.read().decode('utf-8', errors='ignore')
+            match = re.search(r'<meta\s+(?:property|name)=["\']og:image["\']\s+content=["\']([^"\']+)["\']', html, re.I)
+            if not match:
+                match = re.search(r'id=["\']wallpaper["\'][^>]+src=["\']([^"\']+)["\']', html)
+            if not match:
+                match = re.search(r'<img[^>]+src=["\']([^"\']+\.(?:jpg|jpeg|png))["\']', html, re.I)
+            
+            if match:
+                img_url = match.group(1).replace('&amp;', '&')
+                if img_url.startswith("/"):
+                    parsed = urlparse(url)
+                    img_url = f"{parsed.scheme}://{parsed.netloc}{img_url}"
+                elif not img_url.startswith("http"):
+                    img_url = "https:" + img_url if img_url.startswith("//") else "https://" + img_url
+                    
+                req2 = urllib.request.Request(img_url, headers={'User-Agent': 'Mozilla/5.0'})
+                resp2 = urllib.request.urlopen(req2)
+                content_type2 = resp2.headers.get_content_type()
+                
+                def iterfile2():
+                    while chunk := resp2.read(8192):
+                        yield chunk
+                return StreamingResponse(iterfile2(), media_type=content_type2)
+            else:
+                raise HTTPException(status_code=400, detail="Could not find an image in that webpage.")
+                
+        def iterfile():
             while chunk := resp.read(8192):
                 yield chunk
-    return StreamingResponse(iterfile(), media_type="image/jpeg")
+        return StreamingResponse(iterfile(), media_type=content_type)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @app.get("/api/config")
