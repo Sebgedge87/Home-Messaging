@@ -48,6 +48,38 @@
       border: 1px solid #334774;
       font-size: 15px;
     }
+    
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: var(--card-border);
+      border-radius: 10px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--text);
+    }
+    
+    input[type="color"] {
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      appearance: none;
+      background: transparent;
+      border: 1px solid var(--card-border);
+      width: 100%;
+      height: 44px;
+      border-radius: 10px;
+      padding: 4px;
+      cursor: pointer;
+    }
+    input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+    input[type="color"]::-webkit-color-swatch { border: none; border-radius: 6px; }
+    input[type="color"]::-moz-color-swatch { border: none; border-radius: 6px; }
+
     input {
       background: #0e1730;
       color: var(--text);
@@ -173,16 +205,16 @@
       <div style="margin-top:8px"><small id="welcome"></small></div>
 
       <div style="margin-bottom:24px">
-          <small style="color:var(--muted); display:block; margin: 0 0 8px">Theme Presets</small>
-          <div style="display:flex; gap:8px; margin-bottom:16px; overflow-x:auto; padding-bottom:8px;">
-            <button class="preset-btn" data-theme='{"bg":"#09090b", "text":"#f4f4f5", "mine":"#ffffff", "theirs":"#18181b"}' style="flex-shrink:0; padding:6px 12px; border-radius:12px; background:#09090b; color:#f4f4f5; border:1px solid #27272a; font-size:12px; font-weight:bold;">Midnight</button>
-            <button class="preset-btn" data-theme='{"bg":"#000000", "text":"#00ff00", "mine":"#006600", "theirs":"#111111"}' style="flex-shrink:0; padding:6px 12px; border-radius:12px; background:#000000; color:#00ff00; border:1px solid #111111; font-size:12px; font-weight:bold;">Terminal</button>
-            <button class="preset-btn" data-theme='{"bg":"#282a36", "text":"#f8f8f2", "mine":"#bd93f9", "theirs":"#44475a"}' style="flex-shrink:0; padding:6px 12px; border-radius:12px; background:#282a36; color:#bd93f9; border:1px solid #44475a; font-size:12px; font-weight:bold;">Dracula</button>
-            <button class="preset-btn" data-theme='{"bg":"#0f172a", "text":"#e2e8f0", "mine":"#38bdf8", "theirs":"#1e293b"}' style="flex-shrink:0; padding:6px 12px; border-radius:12px; background:#0f172a; color:#38bdf8; border:1px solid #1e293b; font-size:12px; font-weight:bold;">Deep Ocean</button>
-            <button class="preset-btn" data-theme='{"bg":"#f8f9fa", "text":"#212529", "mine":"#0d6efd", "theirs":"#e9ecef"}' style="flex-shrink:0; padding:6px 12px; border-radius:12px; background:#f8f9fa; color:#212529; border:1px solid #dee2e6; font-size:12px; font-weight:bold;">Clean Light</button>
+          <small style="color:var(--muted); display:block; margin: 0 0 10px">Theme Presets</small>
+          <div style="display:flex; gap:10px; margin-bottom:16px; overflow-x:auto; padding-bottom:12px;">
+            <button class="preset-btn" data-theme='{"bg":"#09090b", "text":"#fafafa", "mine":"#2563eb", "theirs":"#27272a"}' style="display:flex; align-items:center; gap:8px; flex-shrink:0; padding:8px 16px; border-radius:24px; background:#09090b; color:#fafafa; border:1px solid #27272a; font-size:13px; font-weight:600;"><span style="width:12px; height:12px; border-radius:50%; background:#2563eb;"></span> Midnight</button>
+            <button class="preset-btn" data-theme='{"bg":"#fff1f2", "text":"#4c0519", "mine":"#fb7185", "theirs":"#ffe4e6"}' style="display:flex; align-items:center; gap:8px; flex-shrink:0; padding:8px 16px; border-radius:24px; background:#fff1f2; color:#4c0519; border:1px solid #fecdd3; font-size:13px; font-weight:600;"><span style="width:12px; height:12px; border-radius:50%; background:#fb7185;"></span> Rose Gold</button>
+            <button class="preset-btn" data-theme='{"bg":"#2e3440", "text":"#eceff4", "mine":"#88c0d0", "theirs":"#3b4252"}' style="display:flex; align-items:center; gap:8px; flex-shrink:0; padding:8px 16px; border-radius:24px; background:#2e3440; color:#eceff4; border:1px solid #434c5e; font-size:13px; font-weight:600;"><span style="width:12px; height:12px; border-radius:50%; background:#88c0d0;"></span> Nordic</button>
+            <button class="preset-btn" data-theme='{"bg":"#022c22", "text":"#ecfdf5", "mine":"#059669", "theirs":"#064e3b"}' style="display:flex; align-items:center; gap:8px; flex-shrink:0; padding:8px 16px; border-radius:24px; background:#022c22; color:#ecfdf5; border:1px solid #064e3b; font-size:13px; font-weight:600;"><span style="width:12px; height:12px; border-radius:50%; background:#059669;"></span> Forest</button>
+            <button class="preset-btn" data-theme='{"bg":"#f8f9fa", "text":"#212529", "mine":"#0d6efd", "theirs":"#e9ecef"}' style="display:flex; align-items:center; gap:8px; flex-shrink:0; padding:8px 16px; border-radius:24px; background:#f8f9fa; color:#212529; border:1px solid #dee2e6; font-size:13px; font-weight:600;"><span style="width:12px; height:12px; border-radius:50%; background:#0d6efd;"></span> Clean Light</button>
           </div>
 
-          <small style="color:var(--muted); display:block; margin:16px 0 8px; border-top:1px solid var(--card-border); padding-top:16px;">Custom Colors</small>
+          <small style="color:var(--muted); display:block; margin:20px 0 10px; border-top:1px solid var(--card-border); padding-top:20px;">Custom Colors</small>
           <div class="row" style="gap:8px; margin-bottom:12px;">
             <div style="flex:1;">
               <small style="color:var(--muted); display:block; margin-bottom:4px">Background</small>
