@@ -21,8 +21,20 @@ const groupTitleEl = document.getElementById('groupTitle');
 const replyInfoEl = document.getElementById('replyInfo');
 const adminPanelEl = document.getElementById('adminPanel');
 const membersListEl = document.getElementById('membersList');
+const rememberMeEl = document.getElementById('rememberMe');
 
 function setStatus(t) { if (statusEl) statusEl.textContent = t; if (authStatusEl) authStatusEl.textContent = t; }
+function loadRememberedDetails() {
+  const u = localStorage.getItem('saved_username');
+  const p = localStorage.getItem('saved_password');
+  if (u) usernameInput.value = u;
+  if (p) passwordInput.value = p;
+}
+function saveRememberedDetails() {
+  if (!rememberMeEl?.checked) return;
+  localStorage.setItem('saved_username', usernameInput.value.trim().toLowerCase());
+  localStorage.setItem('saved_password', passwordInput.value);
+}
 window.addEventListener('error', (e) => setStatus(`Error: ${e.message}`));
 function authHeaders() { return { 'Authorization': `Bearer ${token}` }; }
 
@@ -170,9 +182,9 @@ async function enterApp(username, adminFlag) {
 
 document.getElementById('loginBtn').onclick = async () => {
   try {
-    const body = { username: usernameInput.value.trim(), password: passwordInput.value };
+    const body = { username: usernameInput.value.trim().toLowerCase(), password: passwordInput.value };
     const data = await api('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-    token = data.token; localStorage.setItem('token', token); localStorage.setItem('username', data.username);
+    token = data.token; localStorage.setItem('token', token); localStorage.setItem('username', data.username); saveRememberedDetails();
     await enterApp(data.username, data.is_admin);
   } catch (e) { setStatus(e.message); }
 };
@@ -181,9 +193,9 @@ document.getElementById('registerBtn').onclick = async () => {
   try {
     const ownerKey = ownerKeyInput.value.trim();
     if (hasUsers && !inviteInput.value.trim() && !ownerKey) { setStatus('Invite code required (or owner setup key).'); return; }
-    const body = { username: usernameInput.value.trim(), password: passwordInput.value, invite_code: inviteInput.value.trim() || null, owner_key: ownerKey || null };
+    const body = { username: usernameInput.value.trim().toLowerCase(), password: passwordInput.value, invite_code: inviteInput.value.trim() || null, owner_key: ownerKey || null };
     const data = await api('/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-    token = data.token; localStorage.setItem('token', token); localStorage.setItem('username', data.username);
+    token = data.token; localStorage.setItem('token', token); localStorage.setItem('username', data.username); saveRememberedDetails();
     await enterApp(data.username, data.is_admin);
   } catch (e) { setStatus(e.message); }
 };
@@ -277,5 +289,6 @@ async function autoLogin() {
   }
 }
 
+loadRememberedDetails();
 initAuthHints();
 autoLogin();

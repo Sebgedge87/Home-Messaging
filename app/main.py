@@ -282,10 +282,11 @@ def register(body: AuthRequest) -> dict[str, Any]:
                 raise HTTPException(status_code=400, detail="Invalid or used invite code")
 
         now = datetime.now(timezone.utc).isoformat()
+        username_norm = body.username.strip().lower()
         try:
             cur = conn.execute(
                 "INSERT INTO users (username, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?)",
-                (body.username.strip(), pwd_context.hash(body.password), 1 if (is_first_user or owner_override) else 0, now),
+                (username_norm, pwd_context.hash(body.password), 1 if (is_first_user or owner_override) else 0, now),
             )
         except sqlite3.IntegrityError as exc:
             raise HTTPException(status_code=400, detail="Username already exists") from exc
@@ -301,14 +302,14 @@ def register(body: AuthRequest) -> dict[str, Any]:
             conn.execute("UPDATE invites SET used_by = ?, used_at = ? WHERE code = ?", (user_id, now, body.invite_code))
 
         is_admin = is_first_user or owner_override
-        token = create_token(user_id, body.username.strip(), is_admin)
-        return {"token": token, "username": body.username.strip(), "is_admin": is_admin}
+        token = create_token(user_id, username_norm, is_admin)
+        return {"token": token, "username": username_norm, "is_admin": is_admin}
 
 
 @app.post("/api/login")
 def login(body: AuthRequest) -> dict[str, Any]:
     with db() as conn:
-        row = conn.execute("SELECT * FROM users WHERE username = ?", (body.username.strip(),)).fetchone()
+        row = conn.execute("SELECT * FROM users WHERE username = ?", (body.username.strip().lower(),)).fetchone()
         if not row or not pwd_context.verify(body.password, row["password_hash"]):
             raise HTTPException(status_code=401, detail="Invalid credentials")
         token = create_token(row["id"], row["username"], bool(row["is_admin"]))
@@ -362,7 +363,7 @@ def add_member(group_id: int, body: GroupMemberAdd, user: dict[str, Any] = Depen
     if not user["is_admin"]:
         raise HTTPException(status_code=403, detail="Admin only")
     with db() as conn:
-        target = conn.execute("SELECT id FROM users WHERE username = ?", (body.username.strip(),)).fetchone()
+        target = conn.execute("SELECT id FROM users WHERE username = ?", (body.username.strip().lower(),)).fetchone()
         if not target:
             raise HTTPException(status_code=404, detail="User not found")
         conn.execute(
