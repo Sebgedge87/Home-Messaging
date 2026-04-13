@@ -63,13 +63,19 @@ if (navSettingsBtn && navChatBtn) {
     settingsCard.style.display = 'block';
     navSettingsBtn.style.display = 'none';
     navChatBtn.style.display = 'block';
+    if (isAdmin) loadMembers();
   };
 
-  navChatBtn.onclick = () => {
+  navChatBtn.onclick = async () => {
     settingsCard.style.display = 'none';
     chatCard.style.display = 'block';
     navChatBtn.style.display = 'none';
     navSettingsBtn.style.display = 'block';
+    await loadContacts();
+    try {
+      const groups = await api('/api/groups', { headers: authHeaders() });
+      renderGroups(groups);
+    } catch(e) {}
   };
 }
 
@@ -305,10 +311,39 @@ function urlBase64ToUint8Array(base64String) {
   return Uint8Array.from([...atob(base64)].map(char => char.charCodeAt(0)));
 }
 
+function showToast(title, body) {
+  const container = document.getElementById('toastContainer');
+  if (!container) return;
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.innerHTML = `<div class="toast-title">${title}</div><div class="toast-body">${body}</div>`;
+  container.appendChild(t);
+  
+  setTimeout(() => {
+    t.style.transform = 'translateX(100%) scale(0.95)';
+    t.style.opacity = '0';
+    setTimeout(() => t.remove(), 300);
+  }, 4500);
+}
+
 async function openSocket() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`);
-  ws.onmessage = ev => renderMessage(JSON.parse(ev.data));
+  
+  ws.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.type === 'message') {
+      if (m.group_id === currentGroupId) {
+         renderMessage(m);
+      }
+      
+      if (m.username !== myUsername) {
+         let snippet = m.text || (m.gif_url ? 'Sent a GIF 🎞️' : (m.audio_url ? 'Sent a voice note 🎤' : 'New message'));
+         if (snippet.length > 50) snippet = snippet.substring(0, 50) + '...';
+         showToast(`New message from ${m.username}`, snippet);
+      }
+    }
+  };
   ws.onopen = () => setStatus('Realtime connected');
   ws.onclose = () => setStatus('Realtime disconnected');
 }
