@@ -82,6 +82,9 @@
     audio { width: 100%; margin-top: 6px; }
     small { color: var(--muted); display: block; margin-top: 6px; }
     #authStatus, #status { min-height: 18px; }
+    .chat-grid { display: grid; grid-template-columns: 220px 1fr 220px; gap: 12px; }
+    .panel { background:#0f1933; border:1px solid #2c3a63; border-radius:12px; padding:10px; }
+    @media (max-width: 900px) { .chat-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -98,15 +101,32 @@
   </div>
 
   <div class="card" id="chatCard" style="display:none">
-    <div class="row" style="justify-content:space-between; align-items:center">
-      <strong id="welcome"></strong>
-      <button id="inviteBtn" style="display:none">Create Invite</button>
+    <div class="chat-grid">
+      <div class="panel">
+        <strong>Conversations</strong>
+        <div id="groupsList" style="margin-top:8px"></div>
+        <button id="createGroupBtn" style="display:none; width:100%; margin-top:8px">+ Create Group</button>
+      </div>
+
+      <div>
+        <div class="row" style="justify-content:space-between; align-items:center">
+          <strong id="groupTitle">Conversation</strong>
+          <button id="inviteBtn" style="display:none">Create Invite</button>
+        </div>
+        <div id="inviteOut"></div>
+        <div id="messages"></div>
+        <small id="replyInfo"></small>
+        <div class="row" style="margin-top:10px"><input id="textInput" placeholder="Type message" style="flex:1"/><button id="sendBtn">Send</button></div>
+        <div class="row" style="margin-top:8px"><button id="recBtn">🎙️ Record Voice Note</button><button id="sttBtn">🗣️ Voice to Text</button></div>
+        <small id="status"></small>
+      </div>
+
+      <div class="panel">
+        <strong>Settings</strong>
+        <div style="margin-top:8px"><small id="welcome"></small></div>
+        <button id="logoutBtn" style="width:100%; margin-top:8px">Logout</button>
+      </div>
     </div>
-    <div id="inviteOut"></div>
-    <div id="messages"></div>
-    <div class="row" style="margin-top:10px"><input id="textInput" placeholder="Type message" style="flex:1"/><button id="sendBtn">Send</button></div>
-    <div class="row" style="margin-top:8px"><button id="recBtn">🎙️ Record Voice Note</button><button id="sttBtn">🗣️ Voice to Text</button></div>
-    <small id="status"></small>
   </div>
 </div>
 <script src="/static/app.js"></script>

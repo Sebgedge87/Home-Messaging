@@ -3,6 +3,9 @@ let ws;
 let mediaRecorder;
 let chunks = [];
 let hasUsers = true;
+let isAdmin = false;
+let currentGroupId = null;
+let replyToId = null;
 
 const authCard = document.getElementById('authCard');
 const chatCard = document.getElementById('chatCard');
@@ -13,6 +16,9 @@ const usernameInput = document.getElementById('username');
 const passwordInput = document.getElementById('password');
 const inviteInput = document.getElementById('invite');
 const ownerKeyInput = document.getElementById('ownerKey');
+const groupsEl = document.getElementById('groupsList');
+const groupTitleEl = document.getElementById('groupTitle');
+const replyInfoEl = document.getElementById('replyInfo');
 
 function setStatus(t) { if (statusEl) statusEl.textContent = t; if (authStatusEl) authStatusEl.textContent = t; }
 window.addEventListener('error', (e) => setStatus(`Error: ${e.message}`));
@@ -30,16 +36,48 @@ async function api(path, options={}) {
   return data;
 }
 
+function renderGroups(groups) {
+  groupsEl.innerHTML = '';
+  groups.forEach(g => {
+    const b = document.createElement('button');
+    b.textContent = g.name + (g.is_broadcast ? ' 📢' : '');
+    b.style.width = '100%';
+    b.style.marginBottom = '6px';
+    b.onclick = async () => {
+      currentGroupId = g.id;
+      groupTitleEl.textContent = `Conversation: ${g.name}`;
+      await loadMessages();
+    };
+    groupsEl.appendChild(b);
+  });
+}
+
 function renderMessage(m) {
+  if (m.group_id !== currentGroupId) return;
   const d = document.createElement('div');
   d.className = 'msg';
-  let html = `<strong>${m.username}</strong> <small>${new Date(m.created_at).toLocaleString()}</small><br/>`;
+  if (m.parent_id) d.style.marginLeft = '20px';
+  let html = `<strong>${m.username}</strong> <small>${new Date(m.created_at).toLocaleString()}</small>`;
+  if (m.parent_id) html += ` <small>↪ reply to #${m.parent_id}</small>`;
+  html += '<br/>';
   if (m.text) html += `<span>${m.text}</span>`;
   if (m.audio_url) html += `<audio controls src="${m.audio_url}"></audio>`;
   if (m.transcript) html += `<div><small>Transcript: ${m.transcript}</small></div>`;
+  html += `<div><button data-reply="${m.id || ''}">Reply</button></div>`;
   d.innerHTML = html;
+  d.querySelector('button')?.addEventListener('click', () => {
+    replyToId = m.id || null;
+    replyInfoEl.textContent = replyToId ? `Replying to #${replyToId}` : '';
+  });
   messagesEl.appendChild(d);
   messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+async function loadMessages() {
+  if (!currentGroupId) return;
+  messagesEl.innerHTML = '';
+  const history = await api(`/api/messages?group_id=${currentGroupId}`, { headers: authHeaders() });
+  history.forEach(renderMessage);
 }
 
 async function setupPush() {
@@ -47,38 +85,38 @@ async function setupPush() {
   const reg = await navigator.serviceWorker.register('/static/sw.js');
   const cfg = await api('/api/config');
   if (!cfg.vapidPublicKey) return;
-
-  const sub = await reg.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(cfg.vapidPublicKey)
-  });
-  await api('/api/subscribe', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() },
-    body: JSON.stringify(sub)
-  });
+  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(cfg.vapidPublicKey) });
+  await api('/api/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(sub) });
 }
 
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = atob(base64);
-  return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
+  return Uint8Array.from([...atob(base64)].map(char => char.charCodeAt(0)));
 }
 
-async function enterApp(username, isAdmin) {
-  document.getElementById('welcome').textContent = `Hi ${username}`;
-  authCard.style.display = 'none';
-  chatCard.style.display = 'block';
-  document.getElementById('inviteBtn').style.display = isAdmin ? 'inline-block' : 'none';
-
-  const history = await api('/api/messages', { headers: authHeaders() });
-  history.forEach(renderMessage);
-
+async function openSocket() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`);
   ws.onmessage = ev => renderMessage(JSON.parse(ev.data));
   ws.onopen = () => setStatus('Realtime connected');
   ws.onclose = () => setStatus('Realtime disconnected');
+}
+
+async function enterApp(username, adminFlag) {
+  isAdmin = adminFlag;
+  document.getElementById('welcome').textContent = `Hi ${username}`;
+  authCard.style.display = 'none';
+  chatCard.style.display = 'grid';
+  document.getElementById('inviteBtn').style.display = isAdmin ? 'inline-block' : 'none';
+  document.getElementById('createGroupBtn').style.display = isAdmin ? 'inline-block' : 'none';
+
+  const groups = await api('/api/groups', { headers: authHeaders() });
+  renderGroups(groups);
+  currentGroupId = groups[0]?.id || null;
+  groupTitleEl.textContent = currentGroupId ? `Conversation: ${groups[0].name}` : 'No groups yet';
+  await loadMessages();
+  await openSocket();
   await setupPush();
 }
 
@@ -86,7 +124,7 @@ document.getElementById('loginBtn').onclick = async () => {
   try {
     const body = { username: usernameInput.value.trim(), password: passwordInput.value };
     const data = await api('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-    token = data.token; localStorage.setItem('token', token);
+    token = data.token; localStorage.setItem('token', token); localStorage.setItem('username', data.username);
     await enterApp(data.username, data.is_admin);
   } catch (e) { setStatus(e.message); }
 };
@@ -97,16 +135,18 @@ document.getElementById('registerBtn').onclick = async () => {
     if (hasUsers && !inviteInput.value.trim() && !ownerKey) { setStatus('Invite code required (or owner setup key).'); return; }
     const body = { username: usernameInput.value.trim(), password: passwordInput.value, invite_code: inviteInput.value.trim() || null, owner_key: ownerKey || null };
     const data = await api('/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-    token = data.token; localStorage.setItem('token', token);
+    token = data.token; localStorage.setItem('token', token); localStorage.setItem('username', data.username);
     await enterApp(data.username, data.is_admin);
   } catch (e) { setStatus(e.message); }
 };
 
 document.getElementById('sendBtn').onclick = () => {
   const txt = document.getElementById('textInput').value.trim();
-  if (!txt || !ws) return;
-  ws.send(JSON.stringify({ text: txt }));
+  if (!txt || !ws || !currentGroupId) return;
+  ws.send(JSON.stringify({ text: txt, group_id: currentGroupId, parent_id: replyToId }));
   document.getElementById('textInput').value = '';
+  replyToId = null;
+  replyInfoEl.textContent = '';
 };
 
 document.getElementById('inviteBtn').onclick = async () => {
@@ -116,7 +156,19 @@ document.getElementById('inviteBtn').onclick = async () => {
   } catch (e) { setStatus(e.message); }
 };
 
+document.getElementById('createGroupBtn').onclick = async () => {
+  const name = prompt('Group name');
+  if (!name) return;
+  const isBroadcast = confirm('Broadcast group? (Only admins should post)');
+  try {
+    await api('/api/groups', { method:'POST', headers:{'Content-Type':'application/json', ...authHeaders()}, body: JSON.stringify({ name, is_broadcast: isBroadcast })});
+    const groups = await api('/api/groups', { headers: authHeaders() });
+    renderGroups(groups);
+  } catch (e) { setStatus(e.message); }
+};
+
 document.getElementById('recBtn').onclick = async () => {
+  if (!currentGroupId) { setStatus('Choose a group first'); return; }
   if (!mediaRecorder || mediaRecorder.state === 'inactive') {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     chunks = [];
@@ -126,7 +178,9 @@ document.getElementById('recBtn').onclick = async () => {
       const blob = new Blob(chunks, { type: 'audio/webm' });
       const form = new FormData();
       form.append('file', blob, 'voice.webm');
+      form.append('group_id', String(currentGroupId));
       form.append('transcript', document.getElementById('textInput').value || '');
+      if (replyToId) form.append('parent_id', String(replyToId));
       await fetch('/api/upload-audio', { method:'POST', headers: authHeaders(), body: form });
       document.getElementById('textInput').value = '';
     };
@@ -134,34 +188,46 @@ document.getElementById('recBtn').onclick = async () => {
     setStatus('Recording... click again to stop');
     return;
   }
-
   mediaRecorder.stop();
   setStatus('Uploading voice note...');
 };
 
 document.getElementById('sttBtn').onclick = () => {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { setStatus('Speech recognition not supported in this browser'); return; }
+  if (!SR) { setStatus('Voice-to-text not supported on this browser. Use Chrome/Edge over HTTPS.'); return; }
   const recog = new SR();
   recog.lang = 'en-US';
-  recog.onresult = (e) => {
-    document.getElementById('textInput').value = e.results[0][0].transcript;
-    setStatus('Voice converted to text');
-  };
+  recog.onresult = (e) => { document.getElementById('textInput').value = e.results[0][0].transcript; setStatus('Voice converted to text'); };
+  recog.onerror = (e) => setStatus(`Voice-to-text error: ${e.error}`);
   recog.start();
+};
+
+document.getElementById('logoutBtn').onclick = () => {
+  localStorage.removeItem('token');
+  token = '';
+  location.reload();
 };
 
 async function initAuthHints() {
   try {
     const data = await api('/api/bootstrap');
     hasUsers = data.has_users;
-    inviteInput.placeholder = hasUsers
-      ? 'Invite code required (ask admin), or use owner setup key'
-      : 'No invite needed for first account';
+    inviteInput.placeholder = hasUsers ? 'Invite code required (ask admin), or use owner setup key' : 'No invite needed for first account';
     if (!hasUsers) setStatus('Create the first account with Register (no invite needed).');
   } catch (e) {
     setStatus(`Backend check failed: ${e.message}`);
   }
 }
 
+async function autoLogin() {
+  if (!token) return;
+  try {
+    const me = await api('/api/me', { headers: authHeaders() });
+    await enterApp(me.username, me.is_admin);
+  } catch {
+    localStorage.removeItem('token');
+  }
+}
+
 initAuthHints();
+autoLogin();

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -57,9 +57,11 @@ class ConnectionManager:
     def disconnect(self, user_id: int) -> None:
         self.connections.pop(user_id, None)
 
-    async def broadcast(self, payload: dict[str, Any]) -> None:
+    async def send_many(self, user_ids: set[int], payload: dict[str, Any]) -> None:
         dead = []
         for uid, ws in self.connections.items():
+            if uid not in user_ids:
+                continue
             try:
                 await ws.send_text(json.dumps(payload))
             except Exception:
@@ -82,10 +84,42 @@ class InviteResponse(BaseModel):
     code: str
 
 
+class GroupCreate(BaseModel):
+    name: str
+    is_broadcast: bool = False
+
+
+class GroupMemberAdd(BaseModel):
+    username: str
+
+
 def db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def column_exists(conn: sqlite3.Connection, table: str, col: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(r[1] == col for r in rows)
+
+
+def ensure_general_group(conn: sqlite3.Connection) -> int:
+    row = conn.execute("SELECT id FROM groups WHERE name='General'").fetchone()
+    if row:
+        return int(row["id"])
+    cur = conn.execute(
+        "INSERT INTO groups (name, created_by, is_broadcast, created_at) VALUES (?, ?, ?, ?)",
+        ("General", 0, 0, datetime.now(timezone.utc).isoformat()),
+    )
+    gid = int(cur.lastrowid)
+    users = conn.execute("SELECT id FROM users").fetchall()
+    for u in users:
+        conn.execute(
+            "INSERT OR IGNORE INTO group_members (group_id, user_id, added_at) VALUES (?, ?, ?)",
+            (gid, u["id"], datetime.now(timezone.utc).isoformat()),
+        )
+    return gid
 
 
 def init_db() -> None:
@@ -111,6 +145,22 @@ def init_db() -> None:
                 FOREIGN KEY(used_by) REFERENCES users(id)
             );
 
+            CREATE TABLE IF NOT EXISTS groups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                created_by INTEGER NOT NULL,
+                is_broadcast INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS group_members (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                group_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                added_at TEXT NOT NULL,
+                UNIQUE(group_id, user_id)
+            );
+
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
@@ -133,6 +183,18 @@ def init_db() -> None:
             );
             """
         )
+        if not column_exists(conn, "messages", "group_id"):
+            conn.execute("ALTER TABLE messages ADD COLUMN group_id INTEGER")
+        if not column_exists(conn, "messages", "parent_id"):
+            conn.execute("ALTER TABLE messages ADD COLUMN parent_id INTEGER")
+
+        general_id = ensure_general_group(conn)
+        users = conn.execute("SELECT id FROM users").fetchall()
+        for u in users:
+            conn.execute(
+                "INSERT OR IGNORE INTO group_members (group_id, user_id, added_at) VALUES (?, ?, ?)",
+                (general_id, u["id"], datetime.now(timezone.utc).isoformat()),
+            )
 
 
 @app.on_event("startup")
@@ -156,13 +218,21 @@ def parse_token(token: str) -> dict[str, Any]:
 def current_user(authorization: str | None = Header(default=None)) -> dict[str, Any]:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
-    token = authorization.removeprefix("Bearer ").strip()
-    payload = parse_token(token)
-    return {
-        "id": int(payload["sub"]),
-        "username": payload["username"],
-        "is_admin": bool(payload["is_admin"]),
-    }
+    payload = parse_token(authorization.removeprefix("Bearer ").strip())
+    return {"id": int(payload["sub"]), "username": payload["username"], "is_admin": bool(payload["is_admin"])}
+
+
+def get_visible_group_ids(conn: sqlite3.Connection, user: dict[str, Any]) -> set[int]:
+    rows = conn.execute(
+        """
+        SELECT g.id
+        FROM groups g
+        LEFT JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = ?
+        WHERE gm.user_id IS NOT NULL OR g.is_broadcast = 1
+        """,
+        (user["id"],),
+    ).fetchall()
+    return {int(r["id"]) for r in rows}
 
 
 @app.get("/")
@@ -180,6 +250,10 @@ def config() -> dict[str, str]:
     return {"vapidPublicKey": VAPID_PUBLIC_KEY}
 
 
+@app.get("/api/me")
+def me(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    return user
+
 
 @app.get("/api/bootstrap")
 def bootstrap_status() -> dict[str, bool]:
@@ -193,38 +267,37 @@ def register(body: AuthRequest) -> dict[str, Any]:
     with db() as conn:
         user_count = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
         is_first_user = user_count == 0
-
         owner_override = bool(OWNER_SETUP_KEY and body.owner_key and secrets.compare_digest(body.owner_key, OWNER_SETUP_KEY))
 
         if not is_first_user and not owner_override:
             if not body.invite_code:
                 raise HTTPException(status_code=400, detail="Invite code required")
-            invite = conn.execute(
-                "SELECT * FROM invites WHERE code = ? AND used_by IS NULL", (body.invite_code,)
-            ).fetchone()
+            invite = conn.execute("SELECT * FROM invites WHERE code = ? AND used_by IS NULL", (body.invite_code,)).fetchone()
             if not invite:
                 raise HTTPException(status_code=400, detail="Invalid or used invite code")
 
-        password_hash = pwd_context.hash(body.password)
         now = datetime.now(timezone.utc).isoformat()
         try:
             cur = conn.execute(
                 "INSERT INTO users (username, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?)",
-                (body.username.strip(), password_hash, 1 if (is_first_user or owner_override) else 0, now),
+                (body.username.strip(), pwd_context.hash(body.password), 1 if (is_first_user or owner_override) else 0, now),
             )
         except sqlite3.IntegrityError as exc:
             raise HTTPException(status_code=400, detail="Username already exists") from exc
 
-        user_id = cur.lastrowid
+        user_id = int(cur.lastrowid)
+        general_id = ensure_general_group(conn)
+        conn.execute(
+            "INSERT OR IGNORE INTO group_members (group_id, user_id, added_at) VALUES (?, ?, ?)",
+            (general_id, user_id, now),
+        )
+
         if not is_first_user and not owner_override:
-            conn.execute(
-                "UPDATE invites SET used_by = ?, used_at = ? WHERE code = ?",
-                (user_id, now, body.invite_code),
-            )
+            conn.execute("UPDATE invites SET used_by = ?, used_at = ? WHERE code = ?", (user_id, now, body.invite_code))
 
         is_admin = is_first_user or owner_override
-        token = create_token(user_id, body.username, is_admin)
-        return {"token": token, "username": body.username, "is_admin": is_admin}
+        token = create_token(user_id, body.username.strip(), is_admin)
+        return {"token": token, "username": body.username.strip(), "is_admin": is_admin}
 
 
 @app.post("/api/login")
@@ -234,7 +307,7 @@ def login(body: AuthRequest) -> dict[str, Any]:
         if not row or not pwd_context.verify(body.password, row["password_hash"]):
             raise HTTPException(status_code=401, detail="Invalid credentials")
         token = create_token(row["id"], row["username"], bool(row["is_admin"]))
-        return {"token": token, "username": row["username"], "is_admin": bool(row["is_admin"]) }
+        return {"token": token, "username": row["username"], "is_admin": bool(row["is_admin"])}
 
 
 @app.post("/api/invites", response_model=InviteResponse)
@@ -243,58 +316,111 @@ def create_invite(user: dict[str, Any] = Depends(current_user)) -> InviteRespons
         raise HTTPException(status_code=403, detail="Admin only")
     code = secrets.token_urlsafe(8)
     with db() as conn:
-        conn.execute(
-            "INSERT INTO invites (code, created_by, created_at) VALUES (?, ?, ?)",
-            (code, user["id"], datetime.now(timezone.utc).isoformat()),
-        )
+        conn.execute("INSERT INTO invites (code, created_by, created_at) VALUES (?, ?, ?)", (code, user["id"], datetime.now(timezone.utc).isoformat()))
     return InviteResponse(code=code)
 
 
-@app.get("/api/messages")
-def list_messages(user: dict[str, Any] = Depends(current_user)) -> list[dict[str, Any]]:
-    del user
+@app.get("/api/groups")
+def list_groups(user: dict[str, Any] = Depends(current_user)) -> list[dict[str, Any]]:
     with db() as conn:
-        rows = conn.execute("SELECT * FROM messages ORDER BY id DESC LIMIT 100").fetchall()
-    return [dict(row) for row in reversed(rows)]
+        rows = conn.execute(
+            """
+            SELECT g.*,
+                   CASE WHEN gm.user_id IS NULL THEN 0 ELSE 1 END AS is_member
+            FROM groups g
+            LEFT JOIN group_members gm ON gm.group_id = g.id AND gm.user_id = ?
+            WHERE gm.user_id IS NOT NULL OR g.is_broadcast = 1
+            ORDER BY g.name
+            """,
+            (user["id"],),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/groups")
+def create_group(body: GroupCreate, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    if not user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Admin only")
+    now = datetime.now(timezone.utc).isoformat()
+    with db() as conn:
+        cur = conn.execute(
+            "INSERT INTO groups (name, created_by, is_broadcast, created_at) VALUES (?, ?, ?, ?)",
+            (body.name.strip(), user["id"], 1 if body.is_broadcast else 0, now),
+        )
+        gid = int(cur.lastrowid)
+        conn.execute("INSERT OR IGNORE INTO group_members (group_id, user_id, added_at) VALUES (?, ?, ?)", (gid, user["id"], now))
+        return {"id": gid, "name": body.name.strip(), "is_broadcast": body.is_broadcast}
+
+
+@app.post("/api/groups/{group_id}/members")
+def add_member(group_id: int, body: GroupMemberAdd, user: dict[str, Any] = Depends(current_user)) -> dict[str, str]:
+    if not user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Admin only")
+    with db() as conn:
+        target = conn.execute("SELECT id FROM users WHERE username = ?", (body.username.strip(),)).fetchone()
+        if not target:
+            raise HTTPException(status_code=404, detail="User not found")
+        conn.execute(
+            "INSERT OR IGNORE INTO group_members (group_id, user_id, added_at) VALUES (?, ?, ?)",
+            (group_id, target["id"], datetime.now(timezone.utc).isoformat()),
+        )
+    return {"status": "added"}
+
+
+@app.get("/api/messages")
+def list_messages(group_id: int = Query(...), user: dict[str, Any] = Depends(current_user)) -> list[dict[str, Any]]:
+    with db() as conn:
+        visible = get_visible_group_ids(conn, user)
+        if group_id not in visible:
+            raise HTTPException(status_code=403, detail="Not allowed in this group")
+        rows = conn.execute(
+            "SELECT * FROM messages WHERE group_id = ? ORDER BY id DESC LIMIT 300",
+            (group_id,),
+        ).fetchall()
+    return [dict(r) for r in reversed(rows)]
 
 
 @app.post("/api/upload-audio")
 async def upload_audio(
     file: UploadFile = File(...),
+    group_id: int = Form(...),
     transcript: str = Form(default=""),
+    parent_id: int | None = Form(default=None),
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, str]:
+    with db() as conn:
+        visible = get_visible_group_ids(conn, user)
+        if group_id not in visible:
+            raise HTTPException(status_code=403, detail="Not allowed in this group")
+
     suffix = Path(file.filename or "voice.webm").suffix or ".webm"
     filename = f"voice_{user['id']}_{int(datetime.now().timestamp())}{suffix}"
     path = UPLOAD_DIR / filename
-    with path.open("wb") as f:
-        f.write(await file.read())
+    path.write_bytes(await file.read())
 
+    now = datetime.now(timezone.utc).isoformat()
     audio_url = f"/uploads/{filename}"
     with db() as conn:
         conn.execute(
-            "INSERT INTO messages (user_id, username, text, audio_url, transcript, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                user["id"],
-                user["username"],
-                None,
-                audio_url,
-                transcript,
-                datetime.now(timezone.utc).isoformat(),
-            ),
+            "INSERT INTO messages (user_id, username, text, audio_url, transcript, created_at, group_id, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (user["id"], user["username"], None, audio_url, transcript, now, group_id, parent_id),
         )
+        recipients = get_group_user_ids(conn, group_id)
 
-    payload = {
-        "type": "message",
-        "username": user["username"],
-        "text": None,
-        "audio_url": audio_url,
-        "transcript": transcript,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    await manager.broadcast(payload)
+    payload = {"type": "message", "username": user["username"], "text": None, "audio_url": audio_url, "transcript": transcript, "created_at": now, "group_id": group_id, "parent_id": parent_id}
+    await manager.send_many(recipients, payload)
     send_push_to_all(user["id"], f"{user['username']} sent a voice note")
     return {"audio_url": audio_url}
+
+
+def get_group_user_ids(conn: sqlite3.Connection, group_id: int) -> set[int]:
+    rows = conn.execute("SELECT user_id FROM group_members WHERE group_id = ?", (group_id,)).fetchall()
+    users = {int(r["user_id"]) for r in rows}
+    group = conn.execute("SELECT is_broadcast FROM groups WHERE id = ?", (group_id,)).fetchone()
+    if group and int(group["is_broadcast"]) == 1:
+        all_users = conn.execute("SELECT id FROM users").fetchall()
+        users.update(int(u["id"]) for u in all_users)
+    return users
 
 
 @app.post("/api/subscribe")
@@ -318,32 +444,34 @@ def subscribe(subscription: dict[str, Any], user: dict[str, Any] = Depends(curre
 @app.websocket("/ws")
 async def ws_chat(websocket: WebSocket, token: str) -> None:
     payload = parse_token(token)
-    user = {"id": int(payload["sub"]), "username": payload["username"]}
+    user = {"id": int(payload["sub"]), "username": payload["username"], "is_admin": bool(payload["is_admin"])}
     await manager.connect(user["id"], websocket)
     try:
         while True:
-            raw = await websocket.receive_text()
-            data = json.loads(raw)
+            data = json.loads(await websocket.receive_text())
             text = (data.get("text") or "").strip()
-            if not text:
+            group_id = int(data.get("group_id") or 0)
+            parent_id = data.get("parent_id")
+            if not text or not group_id:
                 continue
 
-            now = datetime.now(timezone.utc).isoformat()
             with db() as conn:
-                conn.execute(
-                    "INSERT INTO messages (user_id, username, text, audio_url, transcript, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                    (user["id"], user["username"], text, None, None, now),
-                )
+                visible = get_visible_group_ids(conn, user)
+                if group_id not in visible:
+                    continue
+                group = conn.execute("SELECT is_broadcast FROM groups WHERE id = ?", (group_id,)).fetchone()
+                if group and int(group["is_broadcast"]) == 1 and not user["is_admin"]:
+                    continue
 
-            payload = {
-                "type": "message",
-                "username": user["username"],
-                "text": text,
-                "audio_url": None,
-                "transcript": None,
-                "created_at": now,
-            }
-            await manager.broadcast(payload)
+                now = datetime.now(timezone.utc).isoformat()
+                conn.execute(
+                    "INSERT INTO messages (user_id, username, text, audio_url, transcript, created_at, group_id, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (user["id"], user["username"], text, None, None, now, group_id, parent_id),
+                )
+                recipients = get_group_user_ids(conn, group_id)
+
+            payload = {"type": "message", "username": user["username"], "text": text, "audio_url": None, "transcript": None, "created_at": now, "group_id": group_id, "parent_id": parent_id}
+            await manager.send_many(recipients, payload)
             send_push_to_all(user["id"], f"{user['username']}: {text[:60]}")
     except WebSocketDisconnect:
         manager.disconnect(user["id"])
@@ -352,19 +480,13 @@ async def ws_chat(websocket: WebSocket, token: str) -> None:
 def send_push_to_all(sender_user_id: int, message: str) -> None:
     if not VAPID_PRIVATE_KEY or not VAPID_PUBLIC_KEY:
         return
-
     with db() as conn:
         rows = conn.execute("SELECT * FROM subscriptions WHERE user_id != ?", (sender_user_id,)).fetchall()
-
     payload = json.dumps({"title": "Home Messaging", "body": message})
     for row in rows:
-        subscription_info = {
-            "endpoint": row["endpoint"],
-            "keys": {"p256dh": row["p256dh"], "auth": row["auth"]},
-        }
         try:
             webpush(
-                subscription_info=subscription_info,
+                subscription_info={"endpoint": row["endpoint"], "keys": {"p256dh": row["p256dh"], "auth": row["auth"]}},
                 data=payload,
                 vapid_private_key=VAPID_PRIVATE_KEY,
                 vapid_claims={"sub": VAPID_CLAIMS_SUBJECT},
