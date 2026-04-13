@@ -27,6 +27,73 @@ function applySettings(color, wp) {
 
 const authCard = document.getElementById('authCard');
 const chatCard = document.getElementById('chatCard');
+const settingsCard = document.getElementById('settingsCard');
+const navButtons = document.getElementById('navButtons');
+const navChatBtn = document.getElementById('navChatBtn');
+const navSettingsBtn = document.getElementById('navSettingsBtn');
+
+if (navSettingsBtn && navChatBtn) {
+  navSettingsBtn.onclick = () => {
+    chatCard.style.display = 'none';
+    settingsCard.style.display = 'block';
+    navSettingsBtn.style.display = 'none';
+    navChatBtn.style.display = 'block';
+  };
+
+  navChatBtn.onclick = () => {
+    settingsCard.style.display = 'none';
+    chatCard.style.display = 'block';
+    navChatBtn.style.display = 'none';
+    navSettingsBtn.style.display = 'block';
+  };
+}
+
+function showModal({ title, message, hasInput, isConfirm }) {
+  return new Promise(resolve => {
+    const overlay = document.getElementById('modalOverlay');
+    const titleEl = document.getElementById('modalTitle');
+    const msgEl = document.getElementById('modalMessage');
+    const inputEl = document.getElementById('modalInput');
+    const okBtn = document.getElementById('modalOk');
+    const cancelBtn = document.getElementById('modalCancel');
+
+    titleEl.textContent = title;
+    msgEl.textContent = message || '';
+    inputEl.style.display = hasInput ? 'block' : 'none';
+    inputEl.value = '';
+    
+    if (isConfirm) {
+      okBtn.textContent = 'Yes';
+      cancelBtn.style.display = 'block';
+    } else if (hasInput) {
+      okBtn.textContent = 'OK';
+      cancelBtn.style.display = 'block';
+    } else {
+      okBtn.textContent = 'OK';
+      cancelBtn.style.display = 'none';
+    }
+
+    overlay.style.display = 'flex';
+    if (hasInput) inputEl.focus();
+
+    const cleanup = () => {
+      overlay.style.display = 'none';
+      okBtn.onclick = null;
+      cancelBtn.onclick = null;
+    };
+
+    okBtn.onclick = () => {
+      cleanup();
+      resolve(hasInput ? inputEl.value.trim() : true);
+    };
+
+    cancelBtn.onclick = () => {
+      cleanup();
+      resolve(hasInput ? null : false);
+    };
+  });
+}
+
 const messagesEl = document.getElementById('messages');
 const statusEl = document.getElementById('status');
 const authStatusEl = document.getElementById('authStatus');
@@ -35,6 +102,7 @@ const passwordInput = document.getElementById('password');
 const inviteInput = document.getElementById('invite');
 const ownerKeyInput = document.getElementById('ownerKey');
 const groupsEl = document.getElementById('groupsList');
+const contactsListEl = document.getElementById('contactsList');
 const groupTitleEl = document.getElementById('groupTitle');
 const replyInfoEl = document.getElementById('replyInfo');
 const adminPanelEl = document.getElementById('adminPanel');
@@ -84,6 +152,45 @@ function renderGroups(groups) {
   });
 }
 
+async function loadContacts() {
+  try {
+    const contacts = await api('/api/contacts', { headers: authHeaders() });
+    renderContacts(contacts);
+  } catch (e) {
+    if (statusEl) setStatus(`Failed to load contacts: ${e.message}`);
+  }
+}
+
+function renderContacts(contacts) {
+  if (!contactsListEl) return;
+  contactsListEl.innerHTML = '';
+  if (contacts.length === 0) {
+    contactsListEl.innerHTML = '<small>No contacts yet</small>';
+    return;
+  }
+  contacts.forEach(c => {
+    const b = document.createElement('button');
+    b.textContent = '👤 ' + c.username;
+    b.style.width = '100%';
+    b.style.marginBottom = '6px';
+    b.style.background = '#1e293b';
+    b.onclick = async () => {
+      try {
+        const res = await api(`/api/direct/${c.id}`, { method: 'POST', headers: authHeaders() });
+        const groups = await api('/api/groups', { headers: authHeaders() });
+        renderGroups(groups);
+        currentGroupId = res.id;
+        const groupObj = groups.find(g => g.id === currentGroupId);
+        groupTitleEl.textContent = `Conversation: ${groupObj ? groupObj.name : 'Direct'}`;
+        await loadMessages();
+      } catch(e) {
+        setStatus(`Failed to start direct message: ${e.message}`);
+      }
+    };
+    contactsListEl.appendChild(b);
+  });
+}
+
 async function loadMembers() {
   if (!isAdmin) return;
   const users = await api('/api/admin/users', { headers: authHeaders() });
@@ -104,7 +211,7 @@ function renderMembers(users) {
       resetBtn.style.width = '100%';
       resetBtn.style.marginTop = '6px';
       resetBtn.onclick = async () => {
-        const np = prompt(`New password for ${u.username}`);
+        const np = await showModal({ title: 'Reset password', message: `New password for ${u.username}`, hasInput: true });
         if (!np) return;
         await api(`/api/admin/users/${u.id}/reset-password`, { method:'POST', headers:{'Content-Type':'application/json', ...authHeaders()}, body: JSON.stringify({ new_password: np }) });
         setStatus(`Password reset for ${u.username}`);
@@ -115,7 +222,8 @@ function renderMembers(users) {
       removeBtn.style.width = '100%';
       removeBtn.style.marginTop = '6px';
       removeBtn.onclick = async () => {
-        if (!confirm(`Remove ${u.username}?`)) return;
+        const confirmed = await showModal({ title: 'Remove user', message: `Remove ${u.username}?`, isConfirm: true });
+        if (!confirmed) return;
         await api(`/api/admin/users/${u.id}`, { method:'DELETE', headers: authHeaders() });
         setStatus(`${u.username} removed`);
         await loadMembers();
@@ -188,13 +296,15 @@ async function enterApp(username, adminFlag, theme, wallpaper) {
 
   document.getElementById('welcome').textContent = `Hi ${username}`;
   authCard.style.display = 'none';
-  chatCard.style.display = 'grid';
+  chatCard.style.display = 'block';
+  navButtons.style.display = 'flex';
   document.getElementById('inviteBtn').style.display = isAdmin ? 'inline-block' : 'none';
   document.getElementById('createGroupBtn').style.display = isAdmin ? 'inline-block' : 'none';
   adminPanelEl.style.display = isAdmin ? 'block' : 'none';
 
   const groups = await api('/api/groups', { headers: authHeaders() });
   renderGroups(groups);
+  await loadContacts();
   currentGroupId = groups[0]?.id || null;
   groupTitleEl.textContent = currentGroupId ? `Conversation: ${groups[0].name}` : 'No groups yet';
   await loadMessages();
@@ -270,9 +380,9 @@ document.getElementById('inviteBtn').onclick = async () => {
 };
 
 document.getElementById('createGroupBtn').onclick = async () => {
-  const name = prompt('Group name');
+  const name = await showModal({ title: 'New Group', message: 'Group name:', hasInput: true });
   if (!name) return;
-  const isBroadcast = confirm('Broadcast group? (Only admins should post)');
+  const isBroadcast = await showModal({ title: 'Broadcast group?', message: 'Only admins should post?', isConfirm: true });
   try {
     await api('/api/groups', { method:'POST', headers:{'Content-Type':'application/json', ...authHeaders()}, body: JSON.stringify({ name, is_broadcast: isBroadcast })});
     const groups = await api('/api/groups', { headers: authHeaders() });

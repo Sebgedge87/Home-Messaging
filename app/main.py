@@ -375,7 +375,58 @@ def list_groups(user: dict[str, Any] = Depends(current_user)) -> list[dict[str, 
             """,
             (user["id"],),
         ).fetchall()
+
+        out = []
+        for r in rows:
+            d = dict(r)
+            if d["name"].startswith("#direct_"):
+                parts = d["name"].split("_")
+                try:
+                    p1, p2 = int(parts[1]), int(parts[2])
+                    other_id = p2 if p1 == user["id"] else p1
+                    other_user = conn.execute("SELECT username FROM users WHERE id = ?", (other_id,)).fetchone()
+                    if other_user:
+                        d["name"] = f"Direct: {other_user['username']}"
+                except Exception:
+                    pass
+            out.append(d)
+    return out
+
+@app.get("/api/contacts")
+def list_contacts(user: dict[str, Any] = Depends(current_user)) -> list[dict[str, Any]]:
+    with db() as conn:
+        rows = conn.execute("SELECT id, username FROM users WHERE id != ? ORDER BY username", (user["id"],)).fetchall()
     return [dict(r) for r in rows]
+
+@app.post("/api/direct/{target_user_id}")
+def start_direct(target_user_id: int, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    if target_user_id == user["id"]:
+        raise HTTPException(status_code=400, detail="Cannot message yourself")
+        
+    u1, u2 = min(user["id"], target_user_id), max(user["id"], target_user_id)
+    group_name = f"#direct_{u1}_{u2}"
+    now = datetime.now(timezone.utc).isoformat()
+    
+    with db() as conn:
+        target = conn.execute("SELECT id FROM users WHERE id = ?", (target_user_id,)).fetchone()
+        if not target:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        row = conn.execute("SELECT id FROM groups WHERE name = ?", (group_name,)).fetchone()
+        if row:
+            gid = int(row["id"])
+            conn.execute("INSERT OR IGNORE INTO group_members (group_id, user_id, added_at) VALUES (?, ?, ?)", (gid, user["id"], now))
+            conn.execute("INSERT OR IGNORE INTO group_members (group_id, user_id, added_at) VALUES (?, ?, ?)", (gid, target_user_id, now))
+            return {"id": gid}
+        
+        cur = conn.execute(
+            "INSERT INTO groups (name, created_by, is_broadcast, created_at) VALUES (?, ?, ?, ?)",
+            (group_name, user["id"], 0, now),
+        )
+        gid = int(cur.lastrowid)
+        conn.execute("INSERT INTO group_members (group_id, user_id, added_at) VALUES (?, ?, ?)", (gid, user["id"], now))
+        conn.execute("INSERT INTO group_members (group_id, user_id, added_at) VALUES (?, ?, ?)", (gid, target_user_id, now))
+        return {"id": gid}
 
 
 @app.post("/api/groups")

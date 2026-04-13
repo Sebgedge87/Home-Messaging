@@ -96,14 +96,20 @@
     audio { width: 100%; margin-top: 6px; }
     small { color: var(--muted); display: block; margin-top: 6px; }
     #authStatus, #status { min-height: 18px; }
-    .chat-grid { display: grid; grid-template-columns: 220px 1fr 220px; gap: 12px; }
+    .chat-grid { display: grid; grid-template-columns: 220px 1fr; gap: 12px; }
     .panel { background:#0f1933; border:1px solid #2c3a63; border-radius:12px; padding:10px; }
     @media (max-width: 900px) { .chat-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
 <div class="wrap">
-  <h2>🏠 Home Messaging</h2>
+  <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:16px;">
+    <h2 style="margin:0;">🏠 Home Messaging</h2>
+    <div id="navButtons" style="display:none; gap:8px;">
+      <button id="navChatBtn" style="background:#2c3a63; display:none;">💬 Chat</button>
+      <button id="navSettingsBtn" style="background:#2c3a63;">⚙️ Settings</button>
+    </div>
+  </div>
 
   <div class="card" id="authCard">
     <h3>Login / Register</h3>
@@ -120,7 +126,10 @@
       <div class="panel">
         <strong>Conversations</strong>
         <div id="groupsList" style="margin-top:8px"></div>
-        <button id="createGroupBtn" style="display:none; width:100%; margin-top:8px">+ Create Group</button>
+        <button id="createGroupBtn" style="display:none; width:100%; margin-top:8px; background:#2c3a63;">+ Create Group</button>
+        
+        <strong style="display:block; margin-top:24px;">Contacts</strong>
+        <div id="contactsList" style="margin-top:8px"></div>
       </div>
 
       <div>
@@ -141,25 +150,41 @@
         <small id="status"></small>
       </div>
 
-      <div class="panel">
-        <strong>Settings</strong>
-        <div style="margin-top:8px"><small id="welcome"></small></div>
-
-        <div style="margin-top:16px">
-          <small>Theme Color</small>
-          <div class="row" style="align-items:center;"><input type="color" id="themeColor" value="#5b8cff" style="min-width:40px; padding:0; height:32px; border:none; border-radius:4px; flexShrink:0; cursor:pointer;" /> <button id="saveThemeBtn" style="padding:6px 12px; font-size:13px;">Save</button></div>
-        </div>
-        <div style="margin-top:8px">
-          <small>Wallpaper URL</small>
-          <div class="row"><input type="text" id="wallpaperUrl" placeholder="https://..." style="width:100%; margin-bottom:8px;"/></div>
-        </div>
-
-        <button id="logoutBtn" style="width:100%; margin-top:12px">Logout</button>
-        <div id="adminPanel" style="display:none; margin-top:10px">
-          <strong>Family members</strong>
-          <div id="membersList" style="margin-top:8px"></div>
-        </div>
       </div>
+    </div>
+  </div>
+
+  <div class="card" id="settingsCard" style="display:none; max-width:500px; margin:0 auto;">
+    <div class="panel">
+      <h3 style="margin-top:0;">⚙️ Settings</h3>
+      <div style="margin-top:8px"><small id="welcome"></small></div>
+
+      <div style="margin-top:16px">
+        <small>Theme Color</small>
+        <div class="row" style="align-items:center;"><input type="color" id="themeColor" value="#5b8cff" style="min-width:40px; padding:0; height:32px; border:none; border-radius:4px; flexShrink:0; cursor:pointer;" /> <button id="saveThemeBtn" style="padding:6px 12px; font-size:13px;">Save</button></div>
+      </div>
+      <div style="margin-top:8px">
+        <small>Wallpaper URL</small>
+        <div class="row"><input type="text" id="wallpaperUrl" placeholder="https://..." style="width:100%; margin-bottom:8px;"/></div>
+      </div>
+
+      <button id="logoutBtn" style="width:100%; margin-top:12px; background:var(--danger);">Logout</button>
+      <div id="adminPanel" style="display:none; margin-top:24px; border-top:1px solid var(--card-border); padding-top:16px;">
+        <strong>Family members</strong>
+        <div id="membersList" style="margin-top:8px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="modalOverlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:1000; justify-content:center; align-items:center; backdrop-filter:blur(2px);">
+  <div class="card" style="min-width:320px; box-shadow:0 20px 40px rgba(0,0,0,0.4);">
+    <h3 id="modalTitle" style="margin-top:0;">Title</h3>
+    <p id="modalMessage" style="color:var(--text); line-height:1.4;"></p>
+    <input id="modalInput" style="width:100%; margin-bottom:12px; display:none;" />
+    <div class="row" style="justify-content:flex-end; margin-top:12px;">
+      <button id="modalCancel" style="background:#2c3a63;">Cancel</button>
+      <button id="modalOk">OK</button>
     </div>
   </div>
 </div>
