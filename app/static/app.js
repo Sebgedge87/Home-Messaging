@@ -19,6 +19,8 @@ const ownerKeyInput = document.getElementById('ownerKey');
 const groupsEl = document.getElementById('groupsList');
 const groupTitleEl = document.getElementById('groupTitle');
 const replyInfoEl = document.getElementById('replyInfo');
+const adminPanelEl = document.getElementById('adminPanel');
+const membersListEl = document.getElementById('membersList');
 
 function setStatus(t) { if (statusEl) statusEl.textContent = t; if (authStatusEl) authStatusEl.textContent = t; }
 window.addEventListener('error', (e) => setStatus(`Error: ${e.message}`));
@@ -50,6 +52,50 @@ function renderGroups(groups) {
     };
     groupsEl.appendChild(b);
   });
+}
+
+async function loadMembers() {
+  if (!isAdmin) return;
+  const users = await api('/api/admin/users', { headers: authHeaders() });
+  renderMembers(users);
+}
+
+function renderMembers(users) {
+  membersListEl.innerHTML = '';
+  users.forEach(u => {
+    const row = document.createElement('div');
+    row.className = 'panel';
+    row.style.marginBottom = '6px';
+    row.innerHTML = `<div><strong>${u.username}</strong>${u.is_admin ? ' (admin)' : ''}</div>`;
+
+    if (!u.is_admin) {
+      const resetBtn = document.createElement('button');
+      resetBtn.textContent = 'Reset password';
+      resetBtn.style.width = '100%';
+      resetBtn.style.marginTop = '6px';
+      resetBtn.onclick = async () => {
+        const np = prompt(`New password for ${u.username}`);
+        if (!np) return;
+        await api(`/api/admin/users/${u.id}/reset-password`, { method:'POST', headers:{'Content-Type':'application/json', ...authHeaders()}, body: JSON.stringify({ new_password: np }) });
+        setStatus(`Password reset for ${u.username}`);
+      };
+
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = 'Remove user';
+      removeBtn.style.width = '100%';
+      removeBtn.style.marginTop = '6px';
+      removeBtn.onclick = async () => {
+        if (!confirm(`Remove ${u.username}?`)) return;
+        await api(`/api/admin/users/${u.id}`, { method:'DELETE', headers: authHeaders() });
+        setStatus(`${u.username} removed`);
+        await loadMembers();
+      };
+      row.appendChild(resetBtn);
+      row.appendChild(removeBtn);
+    }
+    membersListEl.appendChild(row);
+  });
+
 }
 
 function renderMessage(m) {
@@ -110,6 +156,7 @@ async function enterApp(username, adminFlag) {
   chatCard.style.display = 'grid';
   document.getElementById('inviteBtn').style.display = isAdmin ? 'inline-block' : 'none';
   document.getElementById('createGroupBtn').style.display = isAdmin ? 'inline-block' : 'none';
+  adminPanelEl.style.display = isAdmin ? 'block' : 'none';
 
   const groups = await api('/api/groups', { headers: authHeaders() });
   renderGroups(groups);
@@ -118,6 +165,7 @@ async function enterApp(username, adminFlag) {
   await loadMessages();
   await openSocket();
   await setupPush();
+  if (isAdmin) await loadMembers();
 }
 
 document.getElementById('loginBtn').onclick = async () => {

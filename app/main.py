@@ -93,6 +93,11 @@ class GroupMemberAdd(BaseModel):
     username: str
 
 
+class PasswordResetRequest(BaseModel):
+    new_password: str
+
+
+
 def db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -421,6 +426,46 @@ def get_group_user_ids(conn: sqlite3.Connection, group_id: int) -> set[int]:
         all_users = conn.execute("SELECT id FROM users").fetchall()
         users.update(int(u["id"]) for u in all_users)
     return users
+
+
+
+
+@app.get("/api/admin/users")
+def admin_list_users(user: dict[str, Any] = Depends(current_user)) -> list[dict[str, Any]]:
+    if not user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Admin only")
+    with db() as conn:
+        rows = conn.execute("SELECT id, username, is_admin, created_at FROM users ORDER BY username").fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.post("/api/admin/users/{target_user_id}/reset-password")
+def admin_reset_password(target_user_id: int, body: PasswordResetRequest, user: dict[str, Any] = Depends(current_user)) -> dict[str, str]:
+    if not user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Admin only")
+    with db() as conn:
+        row = conn.execute("SELECT id FROM users WHERE id = ?", (target_user_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (pwd_context.hash(body.new_password), target_user_id))
+    return {"status": "password reset"}
+
+
+@app.delete("/api/admin/users/{target_user_id}")
+def admin_remove_user(target_user_id: int, user: dict[str, Any] = Depends(current_user)) -> dict[str, str]:
+    if not user["is_admin"]:
+        raise HTTPException(status_code=403, detail="Admin only")
+    if target_user_id == user["id"]:
+        raise HTTPException(status_code=400, detail="You cannot remove your own admin account")
+    with db() as conn:
+        row = conn.execute("SELECT id FROM users WHERE id = ?", (target_user_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="User not found")
+        conn.execute("DELETE FROM group_members WHERE user_id = ?", (target_user_id,))
+        conn.execute("DELETE FROM subscriptions WHERE user_id = ?", (target_user_id,))
+        conn.execute("DELETE FROM messages WHERE user_id = ?", (target_user_id,))
+        conn.execute("DELETE FROM users WHERE id = ?", (target_user_id,))
+    return {"status": "removed"}
 
 
 @app.post("/api/subscribe")
