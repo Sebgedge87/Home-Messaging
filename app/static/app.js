@@ -270,6 +270,7 @@ function renderMessage(m) {
   if (m.parent_id) html += ` <small>↪ reply to #${m.parent_id}</small>`;
   html += '<br/>';
   if (m.text) html += `<span>${m.text}</span>`;
+  if (m.gif_url) html += `<img src="${m.gif_url}" style="max-width:240px; border-radius:12px; display:block; margin-top:4px;" />`;
   if (m.audio_url) html += `<audio controls src="${m.audio_url}"></audio>`;
   if (m.transcript) html += `<div><small>Transcript: ${m.transcript}</small></div>`;
   html += `<div><button data-reply="${m.id || ''}">Reply</button></div>`;
@@ -365,18 +366,74 @@ const textInput = document.getElementById('textInput');
 if (emojiBtn && emojiPicker) {
   emojiBtn.addEventListener('click', () => {
     emojiPicker.style.display = emojiPicker.style.display === 'none' ? 'block' : 'none';
+    if (gifPicker) gifPicker.style.display = 'none';
   });
   emojiPicker.addEventListener('emoji-click', event => {
     textInput.value += event.detail.unicode;
     emojiPicker.style.display = 'none';
     textInput.focus();
   });
-  document.addEventListener('click', e => {
-    if (!emojiPicker.contains(e.target) && e.target !== emojiBtn) {
-      emojiPicker.style.display = 'none';
-    }
-  });
 }
+
+const gifBtn = document.getElementById('gifBtn');
+const gifPicker = document.getElementById('gifPicker');
+const gifSearch = document.getElementById('gifSearch');
+const gifResults = document.getElementById('gifResults');
+
+if (gifBtn && gifPicker) {
+  gifBtn.onclick = () => {
+    gifPicker.style.display = gifPicker.style.display === 'none' ? 'block' : 'none';
+    if (emojiPicker) emojiPicker.style.display = 'none';
+    if (gifPicker.style.display === 'block') {
+      gifSearch.focus();
+      if (!gifResults.innerHTML) searchGifs('trending');
+    }
+  };
+  
+  let debounce;
+  gifSearch.addEventListener('input', (e) => {
+    clearTimeout(debounce);
+    debounce = setTimeout(() => searchGifs(e.target.value.trim() || 'trending'), 500);
+  });
+  
+  async function searchGifs(query) {
+    try {
+      const q = encodeURIComponent(query);
+      const url = query === 'trending' 
+        ? `https://g.tenor.com/v1/trending?key=LIVDSRZULELA&limit=12`
+        : `https://g.tenor.com/v1/search?q=${q}&key=LIVDSRZULELA&limit=12`;
+      
+      const res = await fetch(url);
+      const data = await res.json();
+      
+      gifResults.innerHTML = '';
+      data.results.forEach(g => {
+        const imgUrl = g.media[0].tinygif.url;
+        const img = document.createElement('img');
+        img.src = imgUrl;
+        img.style.width = '100%';
+        img.style.borderRadius = '8px';
+        img.style.cursor = 'pointer';
+        img.onclick = () => {
+          ws.send(JSON.stringify({ text: null, gif_url: imgUrl, group_id: currentGroupId, parent_id: replyToId }));
+          gifPicker.style.display = 'none';
+          replyToId = null;
+          replyInfoEl.textContent = '';
+        };
+        gifResults.appendChild(img);
+      });
+    } catch(e) { console.error('GIF error', e); }
+  }
+}
+
+document.addEventListener('click', e => {
+  if (emojiPicker && !emojiPicker.contains(e.target) && e.target !== emojiBtn) {
+    emojiPicker.style.display = 'none';
+  }
+  if (gifPicker && !gifPicker.contains(e.target) && e.target !== gifBtn && e.target !== gifSearch) {
+    gifPicker.style.display = 'none';
+  }
+});
 
 document.querySelectorAll('.preset-btn').forEach(btn => {
   btn.onclick = () => {
