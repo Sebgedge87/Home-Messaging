@@ -52,6 +52,18 @@ Open: `http://localhost:8000`
 
 Deploy to Render/Railway/Fly.io using the same env vars above.
 
+## Railway deploy (step-by-step)
+
+1. Push this repo to GitHub.
+2. In Railway, create a new project from the GitHub repo.
+3. Add environment variables:
+   - `APP_SECRET_KEY`
+   - `VAPID_PRIVATE_KEY`
+   - `VAPID_PUBLIC_KEY`
+   - `VAPID_CLAIMS_SUBJECT`
+4. Railway can use `railway.json` or `Procfile` from this repo to start the app.
+5. Confirm deployment health at `/health`.
+
 ## APK option
 
 Use a Trusted Web Activity (TWA) or Capacitor wrapper pointed at your hosted URL to generate an APK for kids' tablets.

@@ -7,8 +7,12 @@ const authCard = document.getElementById('authCard');
 const chatCard = document.getElementById('chatCard');
 const messagesEl = document.getElementById('messages');
 const statusEl = document.getElementById('status');
+const usernameInput = document.getElementById('username');
+const passwordInput = document.getElementById('password');
+const inviteInput = document.getElementById('invite');
 
 function setStatus(t) { statusEl.textContent = t; }
+window.addEventListener('error', (e) => setStatus(`Error: ${e.message}`));
 function authHeaders() { return { 'Authorization': `Bearer ${token}` }; }
 
 async function api(path, options={}) {
@@ -72,7 +76,7 @@ async function enterApp(username, isAdmin) {
 
 document.getElementById('loginBtn').onclick = async () => {
   try {
-    const body = { username: username.value, password: password.value };
+    const body = { username: usernameInput.value, password: passwordInput.value };
     const data = await api('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     token = data.token; localStorage.setItem('token', token);
     await enterApp(data.username, data.is_admin);
@@ -81,7 +85,7 @@ document.getElementById('loginBtn').onclick = async () => {
 
 document.getElementById('registerBtn').onclick = async () => {
   try {
-    const body = { username: username.value, password: password.value, invite_code: invite.value || null };
+    const body = { username: usernameInput.value, password: passwordInput.value, invite_code: inviteInput.value || null };
     const data = await api('/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     token = data.token; localStorage.setItem('token', token);
     await enterApp(data.username, data.is_admin);
