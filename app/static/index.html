@@ -1,0 +1,113 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#2563eb" />
+  <link rel="manifest" href="/static/manifest.webmanifest" />
+  <title>Home Messaging</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --bg-soft: #131a2f;
+      --card: #111a31cc;
+      --card-border: #2c3a63;
+      --text: #e7ecff;
+      --muted: #9fb0dc;
+      --primary: #5b8cff;
+      --primary-2: #3b6df3;
+      --success: #16a34a;
+      --danger: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 500px at 15% -10%, #334d9c44 0%, transparent 60%),
+        radial-gradient(900px 400px at 100% 0%, #1d4ed844 0%, transparent 60%),
+        var(--bg);
+      min-height: 100vh;
+    }
+    .wrap { max-width: 900px; margin: 0 auto; padding: 24px 18px 48px; }
+    h2 { margin: 0 0 16px; letter-spacing: .2px; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: 0 12px 28px rgba(0,0,0,.25);
+      margin-bottom: 14px;
+      backdrop-filter: blur(4px);
+    }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    input, button {
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid #334774;
+      font-size: 15px;
+    }
+    input {
+      background: #0e1730;
+      color: var(--text);
+      min-width: 180px;
+    }
+    input::placeholder { color: #8ea2d3; }
+    button {
+      background: linear-gradient(180deg, var(--primary), var(--primary-2));
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+      transition: transform .08s ease, filter .2s ease;
+    }
+    button:hover { filter: brightness(1.06); }
+    button:active { transform: translateY(1px); }
+    #messages {
+      height: 50vh;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding-right: 4px;
+      margin-top: 8px;
+    }
+    .msg {
+      background: #1a2950;
+      border: 1px solid #2f4b87;
+      padding: 9px 11px;
+      border-radius: 12px;
+    }
+    audio { width: 100%; margin-top: 6px; }
+    small { color: var(--muted); display: block; margin-top: 6px; }
+    #authStatus, #status { min-height: 18px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h2>🏠 Home Messaging</h2>
+
+  <div class="card" id="authCard">
+    <h3>Login / Register</h3>
+    <div class="row"><input id="username" placeholder="Username" /><input id="password" type="password" placeholder="Password" /></div>
+    <div class="row" style="margin-top:8px"><input id="invite" placeholder="Invite code (required except first account)" style="flex:1" /></div>
+    <div class="row" style="margin-top:8px"><button id="loginBtn">Login</button><button id="registerBtn">Register</button></div>
+      <small id="authStatus"></small>
+  </div>
+
+  <div class="card" id="chatCard" style="display:none">
+    <div class="row" style="justify-content:space-between; align-items:center">
+      <strong id="welcome"></strong>
+      <button id="inviteBtn" style="display:none">Create Invite</button>
+    </div>
+    <div id="inviteOut"></div>
+    <div id="messages"></div>
+    <div class="row" style="margin-top:10px"><input id="textInput" placeholder="Type message" style="flex:1"/><button id="sendBtn">Send</button></div>
+    <div class="row" style="margin-top:8px"><button id="recBtn">🎙️ Record Voice Note</button><button id="sttBtn">🗣️ Voice to Text</button></div>
+    <small id="status"></small>
+  </div>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
