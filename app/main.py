@@ -229,6 +229,10 @@ def init_db() -> None:
 
 @app.on_event("startup")
 def startup() -> None:
+    print(f"=== IMPORTANT SYSTEM CHECK ===", flush=True)
+    print(f"Resolved DATA_DIR: {DATA_DIR.absolute()}", flush=True)
+    print(f"Resolved DB_PATH: {DB_PATH.absolute()}", flush=True)
+    print(f"============================", flush=True)
     init_db()
 
 
