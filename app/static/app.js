@@ -378,6 +378,25 @@ if (emojiBtn && emojiPicker) {
   });
 }
 
+document.querySelectorAll('.preset-btn').forEach(btn => {
+  btn.onclick = () => {
+    try {
+      const t = JSON.parse(btn.getAttribute('data-theme'));
+      const bgInput = document.getElementById('bgInput');
+      const textInputColor = document.getElementById('textInputColor');
+      const themeInput = document.getElementById('themeInput');
+      const theirsInput = document.getElementById('theirsInput');
+      
+      if (bgInput) bgInput.value = t.bg;
+      if (textInputColor) textInputColor.value = t.text;
+      if (themeInput) themeInput.value = t.mine;
+      if (theirsInput) theirsInput.value = t.theirs;
+
+      document.getElementById('saveThemeBtn').click();
+    } catch (e) { console.error('Preset error:', e); }
+  };
+});
+
 document.getElementById('saveThemeBtn').onclick = async () => {
   const c = document.getElementById('themeInput').value;
   const b = document.getElementById('bgInput').value;
