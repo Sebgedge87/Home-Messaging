@@ -93,12 +93,12 @@
     .msg-mine {
       margin-left: auto;
       background: var(--user-theme, #3f3f46);
-      color: white;
+      color: var(--bg); /* Best contrast for bright user themes */
       border-bottom-right-radius: 4px;
     }
     .msg-theirs {
       margin-right: auto;
-      background: var(--bg-soft);
+      background: var(--theirs-bg, var(--bg-soft));
       border: 1px solid var(--card-border);
       border-bottom-left-radius: 4px;
     }
@@ -173,8 +173,27 @@
       <div style="margin-top:8px"><small id="welcome"></small></div>
 
       <div style="margin-bottom:24px">
-          <small style="color:var(--muted); display:block; margin-bottom:4px">Theme Color</small>
-          <input type="color" id="themeInput" value="#ffffff" style="width:100%" />
+          <div class="row" style="gap:8px; margin-bottom:12px;">
+            <div style="flex:1;">
+              <small style="color:var(--muted); display:block; margin-bottom:4px">Background</small>
+              <input type="color" id="bgInput" value="#09090b" style="width:100%" />
+            </div>
+            <div style="flex:1;">
+              <small style="color:var(--muted); display:block; margin-bottom:4px">Text Color</small>
+              <input type="color" id="textInputColor" value="#f4f4f5" style="width:100%" />
+            </div>
+          </div>
+          
+          <div class="row" style="gap:8px; margin-bottom:12px;">
+            <div style="flex:1;">
+              <small style="color:var(--muted); display:block; margin-bottom:4px">My Msgs</small>
+              <input type="color" id="themeInput" value="#ffffff" style="width:100%" />
+            </div>
+            <div style="flex:1;">
+               <small style="color:var(--muted); display:block; margin-bottom:4px">Their Msgs</small>
+               <input type="color" id="theirsInput" value="#18181b" style="width:100%" />
+            </div>
+          </div>
           
           <small style="color:var(--muted); display:block; margin:12px 0 4px">Wallpaper URL</small>
           <input type="text" id="wallpaperInput" placeholder="https://..." style="width:100%" />
