@@ -275,6 +275,10 @@ function renderMessage(m) {
   let html = `<strong>${m.username}</strong> <small>${new Date(m.created_at).toLocaleString()}</small>`;
   if (m.parent_id) html += ` <small>↪ reply to #${m.parent_id}</small>`;
   html += '<br/>';
+  if (m.is_intercom) {
+    d.classList.add('msg-intercom');
+    html = `<div style="font-weight:700; color:#ff7b00; font-size:12px; margin-bottom:6px; letter-spacing:0.5px;">📢 INTERCOM BROADCAST</div>` + html;
+  }
   if (m.text) html += `<span>${m.text}</span>`;
   if (m.gif_url) html += `<img src="${m.gif_url}" style="max-width:240px; border-radius:12px; display:block; margin-top:4px;" />`;
   if (m.audio_url) html += `<audio controls src="${m.audio_url}"></audio>`;
@@ -333,15 +337,19 @@ async function openSocket() {
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data);
     if (m.type === 'message') {
-      if (m.group_id === currentGroupId) {
-         renderMessage(m);
-      }
-      
-      if (m.username !== myUsername) {
+      if (m.is_intercom && m.username !== myUsername) {
+         if (m.audio_url) {
+            try { new Audio(m.audio_url).play(); } catch(e) {}
+         }
+         let snippet = m.text || (m.audio_url ? 'Voice Broadcast' : 'Broadcast');
+         showToast(`📢 Intercom: ${m.username}`, snippet);
+      } else if (m.username !== myUsername) {
          let snippet = m.text || (m.gif_url ? 'Sent a GIF 🎞️' : (m.audio_url ? 'Sent a voice note 🎤' : 'New message'));
          if (snippet.length > 50) snippet = snippet.substring(0, 50) + '...';
          showToast(`New message from ${m.username}`, snippet);
       }
+      
+      if (m.group_id === currentGroupId) renderMessage(m);
     }
   };
   ws.onopen = () => setStatus('Realtime connected');
@@ -361,6 +369,7 @@ async function enterApp(username, adminFlag, theme, wallpaper, fontFamily, fontS
   navButtons.style.display = 'flex';
   document.getElementById('inviteBtn').style.display = isAdmin ? 'inline-block' : 'none';
   document.getElementById('createGroupBtn').style.display = isAdmin ? 'inline-block' : 'none';
+  document.getElementById('broadcastBtn').style.display = isAdmin ? 'inline-block' : 'none';
   adminPanelEl.style.display = isAdmin ? 'block' : 'none';
 
   const groups = await api('/api/groups', { headers: authHeaders() });
@@ -546,7 +555,7 @@ document.getElementById('inviteBtn').onclick = async () => {
 document.getElementById('createGroupBtn').onclick = async () => {
   const name = await showModal({ title: 'New Group', message: 'Group name:', hasInput: true });
   if (!name) return;
-  const isBroadcast = await showModal({ title: 'Broadcast group?', message: 'Only admins should post?', isConfirm: true });
+  const isBroadcast = await showModal({ title: 'Auto-add all users?', message: 'Include everyone automatically?', isConfirm: true });
   try {
     await api('/api/groups', { method:'POST', headers:{'Content-Type':'application/json', ...authHeaders()}, body: JSON.stringify({ name, is_broadcast: isBroadcast })});
     const groups = await api('/api/groups', { headers: authHeaders() });
@@ -577,6 +586,38 @@ document.getElementById('recBtn').onclick = async () => {
   }
   mediaRecorder.stop();
   setStatus('Uploading voice note...');
+};
+
+document.getElementById('broadcastBtn').onclick = async () => {
+  if (!currentGroupId) return;
+  const t = textInput.value.trim();
+  if (t) {
+    const isConfirm = await showModal({ title: 'Text Intercom', message: 'Broadcast this message to all devices instantly?', isConfirm: true });
+    if (!isConfirm) return;
+    ws.send(JSON.stringify({ text: t, group_id: currentGroupId, is_intercom: 1 }));
+    document.getElementById('textInput').value = '';
+    return;
+  }
+  
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    chunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = e => chunks.push(e.data);
+    mediaRecorder.onstop = async () => {
+      const blob = new Blob(chunks, { type: 'audio/webm' });
+      const form = new FormData();
+      form.append('file', blob, 'voice.webm');
+      form.append('group_id', String(currentGroupId));
+      form.append('is_intercom', '1');
+      await fetch('/api/upload-audio', { method:'POST', headers: authHeaders(), body: form });
+    };
+    mediaRecorder.start();
+    setStatus('🔴 RECORDING INTERCOM... click 📢 again to stop & blast');
+  } else {
+    mediaRecorder.stop();
+    setStatus('Broadcasting intercom voice note...');
+  }
 };
 
 let recog = null;

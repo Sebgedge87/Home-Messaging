@@ -200,6 +200,7 @@ def init_db() -> None:
                 audio_url TEXT,
                 transcript TEXT,
                 gif_url TEXT,
+                is_intercom INTEGER DEFAULT 0,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY(user_id) REFERENCES users(id)
             );
@@ -221,6 +222,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE messages ADD COLUMN parent_id INTEGER")
         if not column_exists(conn, "messages", "gif_url"):
             conn.execute("ALTER TABLE messages ADD COLUMN gif_url TEXT")
+        if not column_exists(conn, "messages", "is_intercom"):
+            conn.execute("ALTER TABLE messages ADD COLUMN is_intercom INTEGER DEFAULT 0")
         if not column_exists(conn, "users", "theme_color"):
             conn.execute("ALTER TABLE users ADD COLUMN theme_color TEXT DEFAULT '#5b8cff'")
         if not column_exists(conn, "users", "wallpaper_url"):
@@ -507,6 +510,7 @@ async def upload_audio(
     group_id: int = Form(...),
     transcript: str = Form(default=""),
     parent_id: int | None = Form(default=None),
+    is_intercom: int = Form(default=0),
     user: dict[str, Any] = Depends(current_user),
 ) -> dict[str, str]:
     with db() as conn:
@@ -523,12 +527,12 @@ async def upload_audio(
     audio_url = f"/uploads/{filename}"
     with db() as conn:
         conn.execute(
-            "INSERT INTO messages (user_id, username, text, audio_url, transcript, gif_url, created_at, group_id, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (user["id"], user["username"], None, audio_url, encrypt_text(transcript), None, now, group_id, parent_id),
+            "INSERT INTO messages (user_id, username, text, audio_url, transcript, gif_url, is_intercom, created_at, group_id, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user["id"], user["username"], None, audio_url, encrypt_text(transcript), None, is_intercom, now, group_id, parent_id),
         )
         recipients = get_group_user_ids(conn, group_id)
 
-    payload = {"type": "message", "username": user["username"], "text": None, "audio_url": audio_url, "transcript": transcript, "gif_url": None, "created_at": now, "group_id": group_id, "parent_id": parent_id}
+    payload = {"type": "message", "username": user["username"], "text": None, "audio_url": audio_url, "transcript": transcript, "gif_url": None, "is_intercom": is_intercom, "created_at": now, "group_id": group_id, "parent_id": parent_id}
     await manager.send_many(recipients, payload)
     send_push_to_all(user["id"], f"{user['username']} sent a voice note")
     return {"audio_url": audio_url}
@@ -614,6 +618,7 @@ async def ws_chat(websocket: WebSocket, token: str) -> None:
             gif_url = (data.get("gif_url") or "").strip()
             group_id = int(data.get("group_id") or 0)
             parent_id = data.get("parent_id")
+            is_intercom = 1 if data.get("is_intercom") and user["is_admin"] else 0
             if not text and not gif_url or not group_id:
                 continue
 
@@ -627,12 +632,12 @@ async def ws_chat(websocket: WebSocket, token: str) -> None:
 
                 now = datetime.now(timezone.utc).isoformat()
                 conn.execute(
-                    "INSERT INTO messages (user_id, username, text, audio_url, transcript, gif_url, created_at, group_id, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (user["id"], user["username"], encrypt_text(text) if text else None, None, None, gif_url if gif_url else None, now, group_id, parent_id),
+                    "INSERT INTO messages (user_id, username, text, audio_url, transcript, gif_url, is_intercom, created_at, group_id, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (user["id"], user["username"], encrypt_text(text) if text else None, None, None, gif_url if gif_url else None, is_intercom, now, group_id, parent_id),
                 )
                 recipients = get_group_user_ids(conn, group_id)
 
-            payload = {"type": "message", "username": user["username"], "text": text, "audio_url": None, "transcript": None, "gif_url": gif_url if gif_url else None, "created_at": now, "group_id": group_id, "parent_id": parent_id}
+            payload = {"type": "message", "username": user["username"], "text": text, "audio_url": None, "transcript": None, "gif_url": gif_url if gif_url else None, "is_intercom": is_intercom, "created_at": now, "group_id": group_id, "parent_id": parent_id}
             await manager.send_many(recipients, payload)
             send_push_to_all(user["id"], f"{user['username']}: {text[:60]}")
     except WebSocketDisconnect:
