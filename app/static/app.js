@@ -415,13 +415,33 @@ document.getElementById('recBtn').onclick = async () => {
   setStatus('Uploading voice note...');
 };
 
+let recog = null;
 document.getElementById('sttBtn').onclick = () => {
+  if (recog) {
+    recog.stop();
+    recog = null;
+    setStatus('Voice-to-text stopped');
+    return;
+  }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { setStatus('Voice-to-text not supported on this browser. Use Chrome/Edge over HTTPS.'); return; }
-  const recog = new SR();
+  recog = new SR();
   recog.lang = 'en-US';
-  recog.onresult = (e) => { document.getElementById('textInput').value = e.results[0][0].transcript; setStatus('Voice converted to text'); };
-  recog.onerror = (e) => setStatus(`Voice-to-text error: ${e.error}`);
+  setStatus('Listening...');
+  recog.onresult = (e) => { 
+    document.getElementById('textInput').value = e.results[0][0].transcript; 
+    setStatus('Voice converted to text'); 
+    recog = null; 
+  };
+  recog.onerror = (e) => { 
+    if (e.error === 'aborted' || e.error === 'no-speech') {
+      setStatus('Listening stopped');
+    } else {
+      setStatus(`Voice-to-text error: ${e.error}`); 
+    }
+    recog = null;
+  };
+  recog.onend = () => { recog = null; };
   recog.start();
 };
 
