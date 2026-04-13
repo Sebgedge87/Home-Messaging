@@ -41,12 +41,9 @@ function applySettings(color, wp, fontFam, fontSize, themeBg, themeText, themeTh
   document.body.style.fontSize = `var(--user-font-size)`;
 
   if (wp) {
-    document.body.style.backgroundImage = `url(${wp})`;
-    document.body.style.backgroundSize = 'cover';
-    document.body.style.backgroundPosition = 'center';
-    document.body.style.backgroundAttachment = 'fixed';
+    document.documentElement.style.setProperty('--wallpaper', `url('${wp}')`);
   } else {
-    document.body.style.backgroundImage = 'none';
+    document.documentElement.style.setProperty('--wallpaper', 'var(--bg)');
   }
 }
 
@@ -270,6 +267,7 @@ function renderMembers(users) {
 function renderMessage(m) {
   if (m.group_id !== currentGroupId) return;
   const d = document.createElement('div');
+  if (m.id) d.id = `msg-${m.id}`;
   d.className = 'msg ' + (m.username === myUsername ? 'msg-mine' : 'msg-theirs');
   if (m.parent_id) d.style.marginLeft = '20px';
   let html = `<strong>${m.username}</strong> <small>${new Date(m.created_at).toLocaleString()}</small>`;
@@ -285,6 +283,20 @@ function renderMessage(m) {
   if (m.transcript) html += `<div><small>Transcript: ${m.transcript}</small></div>`;
   html += `<div><button data-reply="${m.id || ''}">Reply</button></div>`;
   d.innerHTML = html;
+  
+  if (m.id && (isAdmin || m.username === myUsername)) {
+    const delBtn = document.createElement('div');
+    delBtn.className = 'msg-delete-btn';
+    delBtn.textContent = '🗑️';
+    delBtn.title = 'Delete message for everyone';
+    delBtn.onclick = async () => {
+      try {
+        await api(`/api/messages/${m.id}`, { method: 'DELETE', headers: authHeaders() });
+      } catch(e) { setStatus(e.message); }
+    };
+    d.appendChild(delBtn);
+  }
+  
   d.querySelector('button')?.addEventListener('click', () => {
     replyToId = m.id || null;
     replyInfoEl.textContent = replyToId ? `Replying to #${replyToId}` : '';
@@ -336,6 +348,15 @@ async function openSocket() {
   
   ws.onmessage = ev => {
     const m = JSON.parse(ev.data);
+    if (m.type === 'message_deleted') {
+       const el = document.getElementById(`msg-${m.id}`);
+       if (el) {
+         el.style.opacity = '0';
+         setTimeout(() => el.remove(), 300);
+       }
+       return;
+    }
+    
     if (m.type === 'message') {
       if (m.is_intercom && m.username !== myUsername) {
          if (m.audio_url) {
@@ -518,8 +539,56 @@ document.getElementById('saveThemeBtn').onclick = async () => {
     })});
     applySettings(c, w, f, fs, b, t, th);
     setStatus('Settings saved');
+    document.getElementById('navChatBtn')?.click();
   } catch(e) { setStatus(e.message); }
 };
+
+document.getElementById('wallpaperInput').addEventListener('focusout', async (e) => {
+  const url = e.target.value.trim();
+  if(!url) return;
+  try {
+    setStatus('Extracting theme palette...');
+    const img = new Image();
+    img.crossOrigin = 'Anonymous';
+    img.src = '/api/proxy-image?url=' + encodeURIComponent(url);
+    img.onload = () => {
+       const canvas = document.createElement('canvas');
+       canvas.width = img.width; canvas.height = img.height;
+       const ctx = canvas.getContext('2d', { willReadFrequently: true });
+       ctx.drawImage(img, 0, 0);
+       const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+       let r=0, g=0, b=0, count=0;
+       for (let i=0; i<data.length; i+=40) { r += data[i]; g += data[i+1]; b += data[i+2]; count++; }
+       if (count>0) { r = Math.floor(r/count); g = Math.floor(g/count); b = Math.floor(b/count); }
+       
+       const toHex = (c) => Math.floor(Math.min(255, Math.max(0, c))).toString(16).padStart(2, '0');
+       
+       const bgHex = '#' + toHex(r*0.1) + toHex(g*0.1) + toHex(b*0.1);
+       const theirsHex = '#' + toHex(r*0.15) + toHex(g*0.15) + toHex(b*0.15);
+       
+       const blend = 0.5;
+       const accentR = r + (255 - r) * blend;
+       const accentG = g + (255 - g) * blend;
+       const accentB = b + (255 - b) * blend;
+       const accentHex = '#' + toHex(accentR) + toHex(accentG) + toHex(accentB);
+       
+       const ti = document.getElementById('themeInput');
+       const bi = document.getElementById('bgInput');
+       const hi = document.getElementById('theirsInput');
+       const tc = document.getElementById('textInputColor');
+       
+       if (ti) ti.value = accentHex;
+       if (bi) bi.value = bgHex;
+       if (hi) hi.value = theirsHex;
+       if (tc) tc.value = '#ffffff';
+       
+       setStatus("Auto-Theming successfully applied!");
+    };
+    img.onerror = () => setStatus('Theme extraction failed (image broken)');
+  } catch(err) {
+    console.error(err);
+  }
+});
 
 const fontSlider = document.getElementById('fontSizeInput');
 const fontDisplay = document.getElementById('fontSizeDisplay');
@@ -553,14 +622,42 @@ document.getElementById('inviteBtn').onclick = async () => {
 };
 
 document.getElementById('createGroupBtn').onclick = async () => {
-  const name = await showModal({ title: 'New Group', message: 'Group name:', hasInput: true });
-  if (!name) return;
-  const isBroadcast = await showModal({ title: 'Auto-add all users?', message: 'Include everyone automatically?', isConfirm: true });
+  document.getElementById('groupBuilderOverlay').style.display = 'flex';
+  const listEl = document.getElementById('builderUserList');
+  listEl.innerHTML = '';
+  document.getElementById('builderGroupName').value = '';
+  document.getElementById('builderAllCheckbox').checked = false;
   try {
-    await api('/api/groups', { method:'POST', headers:{'Content-Type':'application/json', ...authHeaders()}, body: JSON.stringify({ name, is_broadcast: isBroadcast })});
+    const contacts = await api('/api/contacts', { headers: authHeaders() });
+    contacts.forEach(c => {
+      listEl.innerHTML += `<label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" value="${c.username}" class="builder-user-check"> ${c.username}</label>`;
+    });
+  } catch(e) {}
+};
+
+document.getElementById('builderCancel').onclick = () => {
+  document.getElementById('groupBuilderOverlay').style.display = 'none';
+};
+
+document.getElementById('builderOk').onclick = async () => {
+  const name = document.getElementById('builderGroupName').value.trim();
+  if (!name) return;
+  const isBroadcast = document.getElementById('builderAllCheckbox').checked;
+  const btn = document.getElementById('builderOk');
+  btn.textContent = 'Creating...';
+  try {
+    const res = await api('/api/groups', { method:'POST', headers:{'Content-Type':'application/json', ...authHeaders()}, body: JSON.stringify({ name, is_broadcast: isBroadcast })});
+    if (!isBroadcast) {
+      const checks = document.querySelectorAll('.builder-user-check:checked');
+      for (let box of checks) {
+        await api(`/api/groups/${res.id}/members`, { method:'POST', headers:{'Content-Type':'application/json', ...authHeaders()}, body: JSON.stringify({ username: box.value })});
+      }
+    }
+    document.getElementById('groupBuilderOverlay').style.display = 'none';
     const groups = await api('/api/groups', { headers: authHeaders() });
     renderGroups(groups);
   } catch (e) { setStatus(e.message); }
+  btn.textContent = 'Create Group';
 };
 
 document.getElementById('recBtn').onclick = async () => {
