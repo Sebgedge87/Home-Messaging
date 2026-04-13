@@ -2,6 +2,7 @@ let token = localStorage.getItem('token') || '';
 let ws;
 let mediaRecorder;
 let chunks = [];
+let hasUsers = true;
 
 const authCard = document.getElementById('authCard');
 const chatCard = document.getElementById('chatCard');
@@ -18,8 +19,13 @@ function authHeaders() { return { 'Authorization': `Bearer ${token}` }; }
 
 async function api(path, options={}) {
   const res = await fetch(path, options);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || 'Request failed');
+  const text = await res.text();
+  let data = {};
+  try { data = text ? JSON.parse(text) : {}; } catch {}
+  if (!res.ok) {
+    const detail = Array.isArray(data.detail) ? data.detail.map(d => d.msg || JSON.stringify(d)).join(', ') : data.detail;
+    throw new Error(detail || text || `Request failed (${res.status})`);
+  }
   return data;
 }
 
@@ -77,7 +83,7 @@ async function enterApp(username, isAdmin) {
 
 document.getElementById('loginBtn').onclick = async () => {
   try {
-    const body = { username: usernameInput.value, password: passwordInput.value };
+    const body = { username: usernameInput.value.trim(), password: passwordInput.value };
     const data = await api('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     token = data.token; localStorage.setItem('token', token);
     await enterApp(data.username, data.is_admin);
@@ -86,7 +92,8 @@ document.getElementById('loginBtn').onclick = async () => {
 
 document.getElementById('registerBtn').onclick = async () => {
   try {
-    const body = { username: usernameInput.value, password: passwordInput.value, invite_code: inviteInput.value || null };
+    if (hasUsers && !inviteInput.value.trim()) { setStatus('Invite code required (admin must create one).'); return; }
+    const body = { username: usernameInput.value.trim(), password: passwordInput.value, invite_code: inviteInput.value.trim() || null };
     const data = await api('/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     token = data.token; localStorage.setItem('token', token);
     await enterApp(data.username, data.is_admin);
@@ -141,3 +148,18 @@ document.getElementById('sttBtn').onclick = () => {
   };
   recog.start();
 };
+
+async function initAuthHints() {
+  try {
+    const data = await api('/api/bootstrap');
+    hasUsers = data.has_users;
+    inviteInput.placeholder = hasUsers
+      ? 'Invite code required (ask admin)'
+      : 'No invite needed for first account';
+    if (!hasUsers) setStatus('Create the first account with Register (no invite needed).');
+  } catch (e) {
+    setStatus(`Backend check failed: ${e.message}`);
+  }
+}
+
+initAuthHints();

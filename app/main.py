@@ -178,6 +178,14 @@ def config() -> dict[str, str]:
     return {"vapidPublicKey": VAPID_PUBLIC_KEY}
 
 
+
+@app.get("/api/bootstrap")
+def bootstrap_status() -> dict[str, bool]:
+    with db() as conn:
+        user_count = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
+    return {"has_users": user_count > 0}
+
+
 @app.post("/api/register")
 def register(body: AuthRequest) -> dict[str, Any]:
     with db() as conn:
