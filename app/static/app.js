@@ -7,11 +7,12 @@ const authCard = document.getElementById('authCard');
 const chatCard = document.getElementById('chatCard');
 const messagesEl = document.getElementById('messages');
 const statusEl = document.getElementById('status');
+const authStatusEl = document.getElementById('authStatus');
 const usernameInput = document.getElementById('username');
 const passwordInput = document.getElementById('password');
 const inviteInput = document.getElementById('invite');
 
-function setStatus(t) { statusEl.textContent = t; }
+function setStatus(t) { if (statusEl) statusEl.textContent = t; if (authStatusEl) authStatusEl.textContent = t; }
 window.addEventListener('error', (e) => setStatus(`Error: ${e.message}`));
 function authHeaders() { return { 'Authorization': `Bearer ${token}` }; }
 
