@@ -43,6 +43,7 @@ export APP_SECRET_KEY='change-me'
 export VAPID_PRIVATE_KEY='...'
 export VAPID_PUBLIC_KEY='...'
 export VAPID_CLAIMS_SUBJECT='mailto:you@example.com'
+export OWNER_SETUP_KEY='optional-recovery-key'
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
@@ -72,3 +73,5 @@ Use a Trusted Web Activity (TWA) or Capacitor wrapper pointed at your hosted URL
 
 - Speech-to-text depends on browser support (`SpeechRecognition` / `webkitSpeechRecognition`).
 - Push notifications require HTTPS in production.
+
+- Optional recovery: set `OWNER_SETUP_KEY` to allow owner-admin registration without invite (use only for household owner and keep secret).

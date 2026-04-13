@@ -29,6 +29,7 @@ ACCESS_TOKEN_MINUTES = 60 * 24 * 14
 VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "")
 VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "")
 VAPID_CLAIMS_SUBJECT = os.getenv("VAPID_CLAIMS_SUBJECT", "mailto:admin@example.com")
+OWNER_SETUP_KEY = os.getenv("OWNER_SETUP_KEY", "")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 app = FastAPI(title="Home Messaging")
@@ -74,6 +75,7 @@ class AuthRequest(BaseModel):
     username: str
     password: str
     invite_code: str | None = None
+    owner_key: str | None = None
 
 
 class InviteResponse(BaseModel):
@@ -192,7 +194,9 @@ def register(body: AuthRequest) -> dict[str, Any]:
         user_count = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
         is_first_user = user_count == 0
 
-        if not is_first_user:
+        owner_override = bool(OWNER_SETUP_KEY and body.owner_key and secrets.compare_digest(body.owner_key, OWNER_SETUP_KEY))
+
+        if not is_first_user and not owner_override:
             if not body.invite_code:
                 raise HTTPException(status_code=400, detail="Invite code required")
             invite = conn.execute(
@@ -206,20 +210,21 @@ def register(body: AuthRequest) -> dict[str, Any]:
         try:
             cur = conn.execute(
                 "INSERT INTO users (username, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?)",
-                (body.username.strip(), password_hash, 1 if is_first_user else 0, now),
+                (body.username.strip(), password_hash, 1 if (is_first_user or owner_override) else 0, now),
             )
         except sqlite3.IntegrityError as exc:
             raise HTTPException(status_code=400, detail="Username already exists") from exc
 
         user_id = cur.lastrowid
-        if not is_first_user:
+        if not is_first_user and not owner_override:
             conn.execute(
                 "UPDATE invites SET used_by = ?, used_at = ? WHERE code = ?",
                 (user_id, now, body.invite_code),
             )
 
-        token = create_token(user_id, body.username, is_first_user)
-        return {"token": token, "username": body.username, "is_admin": is_first_user}
+        is_admin = is_first_user or owner_override
+        token = create_token(user_id, body.username, is_admin)
+        return {"token": token, "username": body.username, "is_admin": is_admin}
 
 
 @app.post("/api/login")

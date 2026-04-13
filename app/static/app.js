@@ -12,6 +12,7 @@ const authStatusEl = document.getElementById('authStatus');
 const usernameInput = document.getElementById('username');
 const passwordInput = document.getElementById('password');
 const inviteInput = document.getElementById('invite');
+const ownerKeyInput = document.getElementById('ownerKey');
 
 function setStatus(t) { if (statusEl) statusEl.textContent = t; if (authStatusEl) authStatusEl.textContent = t; }
 window.addEventListener('error', (e) => setStatus(`Error: ${e.message}`));
@@ -92,8 +93,9 @@ document.getElementById('loginBtn').onclick = async () => {
 
 document.getElementById('registerBtn').onclick = async () => {
   try {
-    if (hasUsers && !inviteInput.value.trim()) { setStatus('Invite code required (admin must create one).'); return; }
-    const body = { username: usernameInput.value.trim(), password: passwordInput.value, invite_code: inviteInput.value.trim() || null };
+    const ownerKey = ownerKeyInput.value.trim();
+    if (hasUsers && !inviteInput.value.trim() && !ownerKey) { setStatus('Invite code required (or owner setup key).'); return; }
+    const body = { username: usernameInput.value.trim(), password: passwordInput.value, invite_code: inviteInput.value.trim() || null, owner_key: ownerKey || null };
     const data = await api('/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     token = data.token; localStorage.setItem('token', token);
     await enterApp(data.username, data.is_admin);
@@ -154,7 +156,7 @@ async function initAuthHints() {
     const data = await api('/api/bootstrap');
     hasUsers = data.has_users;
     inviteInput.placeholder = hasUsers
-      ? 'Invite code required (ask admin)'
+      ? 'Invite code required (ask admin), or use owner setup key'
       : 'No invite needed for first account';
     if (!hasUsers) setStatus('Create the first account with Register (no invite needed).');
   } catch (e) {
