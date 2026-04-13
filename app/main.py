@@ -16,12 +16,16 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel
 from pywebpush import WebPushException, webpush
+from cryptography.fernet import Fernet
+import base64
+import hashlib
 
 BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
 STATIC_DIR = BASE_DIR / "static"
-UPLOAD_DIR = BASE_DIR / "uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
-DB_PATH = BASE_DIR / "messaging.db"
+UPLOAD_DIR = DATA_DIR / "uploads"
+UPLOAD_DIR.mkdir(exist_ok=True, parents=True)
+DB_PATH = DATA_DIR / "messaging.db"
 
 APP_SECRET_KEY = os.getenv("APP_SECRET_KEY", "dev-insecure-change-me")
 ALGORITHM = "HS256"
@@ -31,7 +35,20 @@ VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "")
 VAPID_CLAIMS_SUBJECT = os.getenv("VAPID_CLAIMS_SUBJECT", "mailto:admin@example.com")
 OWNER_SETUP_KEY = os.getenv("OWNER_SETUP_KEY", "")
 
-pwd_context = CryptContext(schemes=["pbkdf2_sha256", "bcrypt"], deprecated="auto")
+_key_bytes = hashlib.sha256(APP_SECRET_KEY.encode()).digest()
+crypto_key = base64.urlsafe_b64encode(_key_bytes)
+fernet = Fernet(crypto_key)
+
+def encrypt_text(text: str | None) -> str | None:
+    if not text: return text
+    return fernet.encrypt(text.encode('utf-8')).decode('utf-8')
+
+def decrypt_text(text: str | None) -> str | None:
+    if not text: return text
+    try: return fernet.decrypt(text.encode('utf-8')).decode('utf-8')
+    except Exception: return text  # fallback for plain text
+
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 app = FastAPI(title="Home Messaging")
 
 app.add_middleware(
@@ -95,6 +112,10 @@ class GroupMemberAdd(BaseModel):
 
 class PasswordResetRequest(BaseModel):
     new_password: str
+
+class SettingsUpdate(BaseModel):
+    theme_color: str | None = None
+    wallpaper_url: str | None = None
 
 
 
@@ -192,6 +213,10 @@ def init_db() -> None:
             conn.execute("ALTER TABLE messages ADD COLUMN group_id INTEGER")
         if not column_exists(conn, "messages", "parent_id"):
             conn.execute("ALTER TABLE messages ADD COLUMN parent_id INTEGER")
+        if not column_exists(conn, "users", "theme_color"):
+            conn.execute("ALTER TABLE users ADD COLUMN theme_color TEXT DEFAULT '#5b8cff'")
+        if not column_exists(conn, "users", "wallpaper_url"):
+            conn.execute("ALTER TABLE users ADD COLUMN wallpaper_url TEXT")
 
         general_id = ensure_general_group(conn)
         users = conn.execute("SELECT id FROM users").fetchall()
@@ -257,7 +282,16 @@ def config() -> dict[str, str]:
 
 @app.get("/api/me")
 def me(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
-    return user
+    with db() as conn:
+        row = conn.execute("SELECT theme_color, wallpaper_url FROM users WHERE id = ?", (user["id"],)).fetchone()
+    d = dict(row) if row else {}
+    return {**user, "theme_color": d.get("theme_color", "#5b8cff"), "wallpaper_url": d.get("wallpaper_url")}
+
+@app.post("/api/settings")
+def update_settings(body: SettingsUpdate, user: dict[str, Any] = Depends(current_user)) -> dict[str, str]:
+    with db() as conn:
+        conn.execute("UPDATE users SET theme_color = ?, wallpaper_url = ? WHERE id = ?", (body.theme_color, body.wallpaper_url, user["id"]))
+    return {"status": "updated"}
 
 
 @app.get("/api/bootstrap")
@@ -303,7 +337,7 @@ def register(body: AuthRequest) -> dict[str, Any]:
 
         is_admin = is_first_user or owner_override
         token = create_token(user_id, username_norm, is_admin)
-        return {"token": token, "username": username_norm, "is_admin": is_admin}
+        return {"token": token, "username": username_norm, "is_admin": is_admin, "theme_color": "#5b8cff", "wallpaper_url": None}
 
 
 @app.post("/api/login")
@@ -313,7 +347,8 @@ def login(body: AuthRequest) -> dict[str, Any]:
         if not row or not pwd_context.verify(body.password, row["password_hash"]):
             raise HTTPException(status_code=401, detail="Invalid credentials")
         token = create_token(row["id"], row["username"], bool(row["is_admin"]))
-        return {"token": token, "username": row["username"], "is_admin": bool(row["is_admin"])}
+        d = dict(row)
+        return {"token": token, "username": d["username"], "is_admin": bool(d["is_admin"]), "theme_color": d.get("theme_color", "#5b8cff"), "wallpaper_url": d.get("wallpaper_url")}
 
 
 @app.post("/api/invites", response_model=InviteResponse)
@@ -383,7 +418,14 @@ def list_messages(group_id: int = Query(...), user: dict[str, Any] = Depends(cur
             "SELECT * FROM messages WHERE group_id = ? ORDER BY id DESC LIMIT 300",
             (group_id,),
         ).fetchall()
-    return [dict(r) for r in reversed(rows)]
+    
+    out = []
+    for r in reversed(rows):
+        d = dict(r)
+        d["text"] = decrypt_text(d["text"])
+        d["transcript"] = decrypt_text(d["transcript"])
+        out.append(d)
+    return out
 
 
 @app.post("/api/upload-audio")
@@ -409,7 +451,7 @@ async def upload_audio(
     with db() as conn:
         conn.execute(
             "INSERT INTO messages (user_id, username, text, audio_url, transcript, created_at, group_id, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (user["id"], user["username"], None, audio_url, transcript, now, group_id, parent_id),
+            (user["id"], user["username"], None, audio_url, encrypt_text(transcript), now, group_id, parent_id),
         )
         recipients = get_group_user_ids(conn, group_id)
 
@@ -512,7 +554,7 @@ async def ws_chat(websocket: WebSocket, token: str) -> None:
                 now = datetime.now(timezone.utc).isoformat()
                 conn.execute(
                     "INSERT INTO messages (user_id, username, text, audio_url, transcript, created_at, group_id, parent_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (user["id"], user["username"], text, None, None, now, group_id, parent_id),
+                    (user["id"], user["username"], encrypt_text(text), None, None, now, group_id, parent_id),
                 )
                 recipients = get_group_user_ids(conn, group_id)
 

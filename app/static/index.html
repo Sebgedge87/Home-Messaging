@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <meta name="theme-color" content="#2563eb" />
   <link rel="manifest" href="/static/manifest.webmanifest" />
+  <script type="module" src="https://cdn.jsdelivr.net/npm/emoji-picker-element@1/index.js"></script>
   <title>Home Messaging</title>
   <style>
     :root {
@@ -69,15 +70,28 @@
       overflow: auto;
       display: flex;
       flex-direction: column;
-      gap: 8px;
-      padding-right: 4px;
+      gap: 12px;
+      padding: 12px;
       margin-top: 8px;
     }
     .msg {
+      padding: 10px 14px;
+      border-radius: 18px;
+      position: relative;
+      max-width: 85%;
+      line-height: 1.4;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.25);
+    }
+    .msg-mine {
+      margin-left: auto;
+      background: var(--user-theme, var(--primary));
+      color: white;
+      border-bottom-right-radius: 4px;
+    }
+    .msg-theirs {
+      margin-right: auto;
       background: #1a2950;
-      border: 1px solid #2f4b87;
-      padding: 9px 11px;
-      border-radius: 12px;
+      border-bottom-left-radius: 4px;
     }
     audio { width: 100%; margin-top: 6px; }
     small { color: var(--muted); display: block; margin-top: 6px; }
@@ -117,7 +131,12 @@
         <div id="inviteOut"></div>
         <div id="messages"></div>
         <small id="replyInfo"></small>
-        <div class="row" style="margin-top:10px"><input id="textInput" placeholder="Type message" style="flex:1"/><button id="sendBtn">Send</button></div>
+        <div class="row" style="margin-top:10px; align-items:center; position:relative;">
+          <input id="textInput" placeholder="Type message" style="flex:1"/>
+          <button id="emojiBtn" type="button" style="padding:10px; font-size:18px; line-height:1; display:flex;">😀</button>
+          <button id="sendBtn">Send</button>
+          <emoji-picker id="emojiPicker" style="display:none; position:absolute; bottom:100%; right:0; z-index:100; --background:var(--bg-soft); --border-color:var(--card-border);"></emoji-picker>
+        </div>
         <div class="row" style="margin-top:8px"><button id="recBtn">🎙️ Record Voice Note</button><button id="sttBtn">🗣️ Voice to Text</button></div>
         <small id="status"></small>
       </div>
@@ -125,7 +144,17 @@
       <div class="panel">
         <strong>Settings</strong>
         <div style="margin-top:8px"><small id="welcome"></small></div>
-        <button id="logoutBtn" style="width:100%; margin-top:8px">Logout</button>
+
+        <div style="margin-top:16px">
+          <small>Theme Color</small>
+          <div class="row" style="align-items:center;"><input type="color" id="themeColor" value="#5b8cff" style="min-width:40px; padding:0; height:32px; border:none; border-radius:4px; flexShrink:0; cursor:pointer;" /> <button id="saveThemeBtn" style="padding:6px 12px; font-size:13px;">Save</button></div>
+        </div>
+        <div style="margin-top:8px">
+          <small>Wallpaper URL</small>
+          <div class="row"><input type="text" id="wallpaperUrl" placeholder="https://..." style="width:100%; margin-bottom:8px;"/></div>
+        </div>
+
+        <button id="logoutBtn" style="width:100%; margin-top:12px">Logout</button>
         <div id="adminPanel" style="display:none; margin-top:10px">
           <strong>Family members</strong>
           <div id="membersList" style="margin-top:8px"></div>

@@ -7,6 +7,24 @@ let isAdmin = false;
 let currentGroupId = null;
 let replyToId = null;
 
+let myUsername = localStorage.getItem('username') || '';
+let myThemeColor = '#5b8cff';
+let myWallpaper = '';
+
+function applySettings(color, wp) {
+  document.documentElement.style.setProperty('--user-theme', color);
+  document.getElementById('themeColor').value = color;
+  document.getElementById('wallpaperUrl').value = wp || '';
+  if (wp) {
+    document.body.style.backgroundImage = `url(${wp})`;
+    document.body.style.backgroundSize = 'cover';
+    document.body.style.backgroundPosition = 'center';
+    document.body.style.backgroundAttachment = 'fixed';
+  } else {
+    document.body.style.backgroundImage = 'none';
+  }
+}
+
 const authCard = document.getElementById('authCard');
 const chatCard = document.getElementById('chatCard');
 const messagesEl = document.getElementById('messages');
@@ -113,7 +131,7 @@ function renderMembers(users) {
 function renderMessage(m) {
   if (m.group_id !== currentGroupId) return;
   const d = document.createElement('div');
-  d.className = 'msg';
+  d.className = 'msg ' + (m.username === myUsername ? 'msg-mine' : 'msg-theirs');
   if (m.parent_id) d.style.marginLeft = '20px';
   let html = `<strong>${m.username}</strong> <small>${new Date(m.created_at).toLocaleString()}</small>`;
   if (m.parent_id) html += ` <small>↪ reply to #${m.parent_id}</small>`;
@@ -161,8 +179,13 @@ async function openSocket() {
   ws.onclose = () => setStatus('Realtime disconnected');
 }
 
-async function enterApp(username, adminFlag) {
+async function enterApp(username, adminFlag, theme, wallpaper) {
+  myUsername = username;
   isAdmin = adminFlag;
+  myThemeColor = theme || '#5b8cff';
+  myWallpaper = wallpaper || '';
+  applySettings(myThemeColor, myWallpaper);
+
   document.getElementById('welcome').textContent = `Hi ${username}`;
   authCard.style.display = 'none';
   chatCard.style.display = 'grid';
@@ -185,7 +208,7 @@ document.getElementById('loginBtn').onclick = async () => {
     const body = { username: usernameInput.value.trim().toLowerCase(), password: passwordInput.value };
     const data = await api('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     token = data.token; localStorage.setItem('token', token); localStorage.setItem('username', data.username); saveRememberedDetails();
-    await enterApp(data.username, data.is_admin);
+    await enterApp(data.username, data.is_admin, data.theme_color, data.wallpaper_url);
   } catch (e) { setStatus(e.message); }
 };
 
@@ -196,12 +219,42 @@ document.getElementById('registerBtn').onclick = async () => {
     const body = { username: usernameInput.value.trim().toLowerCase(), password: passwordInput.value, invite_code: inviteInput.value.trim() || null, owner_key: ownerKey || null };
     const data = await api('/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
     token = data.token; localStorage.setItem('token', token); localStorage.setItem('username', data.username); saveRememberedDetails();
-    await enterApp(data.username, data.is_admin);
+    await enterApp(data.username, data.is_admin, data.theme_color, data.wallpaper_url);
   } catch (e) { setStatus(e.message); }
 };
 
+const emojiBtn = document.getElementById('emojiBtn');
+const emojiPicker = document.getElementById('emojiPicker');
+const textInput = document.getElementById('textInput');
+
+if (emojiBtn && emojiPicker) {
+  emojiBtn.addEventListener('click', () => {
+    emojiPicker.style.display = emojiPicker.style.display === 'none' ? 'block' : 'none';
+  });
+  emojiPicker.addEventListener('emoji-click', event => {
+    textInput.value += event.detail.unicode;
+    emojiPicker.style.display = 'none';
+    textInput.focus();
+  });
+  document.addEventListener('click', e => {
+    if (!emojiPicker.contains(e.target) && e.target !== emojiBtn) {
+      emojiPicker.style.display = 'none';
+    }
+  });
+}
+
+document.getElementById('saveThemeBtn').onclick = async () => {
+  const c = document.getElementById('themeColor').value;
+  const w = document.getElementById('wallpaperUrl').value.trim();
+  try {
+    await api('/api/settings', { method:'POST', headers:{'Content-Type':'application/json', ...authHeaders()}, body: JSON.stringify({theme_color: c, wallpaper_url: w || null})});
+    applySettings(c, w);
+    setStatus('Settings saved');
+  } catch(e) { setStatus(e.message); }
+};
+
 document.getElementById('sendBtn').onclick = () => {
-  const txt = document.getElementById('textInput').value.trim();
+  const txt = textInput.value.trim();
   if (!txt || !ws || !currentGroupId) return;
   ws.send(JSON.stringify({ text: txt, group_id: currentGroupId, parent_id: replyToId }));
   document.getElementById('textInput').value = '';
@@ -283,7 +336,7 @@ async function autoLogin() {
   if (!token) return;
   try {
     const me = await api('/api/me', { headers: authHeaders() });
-    await enterApp(me.username, me.is_admin);
+    await enterApp(me.username, me.is_admin, me.theme_color, me.wallpaper_url);
   } catch {
     localStorage.removeItem('token');
   }
