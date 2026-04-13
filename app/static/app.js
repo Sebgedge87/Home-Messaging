@@ -1,0 +1,294 @@
+let token = localStorage.getItem('token') || '';
+let ws;
+let mediaRecorder;
+let chunks = [];
+let hasUsers = true;
+let isAdmin = false;
+let currentGroupId = null;
+let replyToId = null;
+
+const authCard = document.getElementById('authCard');
+const chatCard = document.getElementById('chatCard');
+const messagesEl = document.getElementById('messages');
+const statusEl = document.getElementById('status');
+const authStatusEl = document.getElementById('authStatus');
+const usernameInput = document.getElementById('username');
+const passwordInput = document.getElementById('password');
+const inviteInput = document.getElementById('invite');
+const ownerKeyInput = document.getElementById('ownerKey');
+const groupsEl = document.getElementById('groupsList');
+const groupTitleEl = document.getElementById('groupTitle');
+const replyInfoEl = document.getElementById('replyInfo');
+const adminPanelEl = document.getElementById('adminPanel');
+const membersListEl = document.getElementById('membersList');
+const rememberMeEl = document.getElementById('rememberMe');
+
+function setStatus(t) { if (statusEl) statusEl.textContent = t; if (authStatusEl) authStatusEl.textContent = t; }
+function loadRememberedDetails() {
+  const u = localStorage.getItem('saved_username');
+  const p = localStorage.getItem('saved_password');
+  if (u) usernameInput.value = u;
+  if (p) passwordInput.value = p;
+}
+function saveRememberedDetails() {
+  if (!rememberMeEl?.checked) return;
+  localStorage.setItem('saved_username', usernameInput.value.trim().toLowerCase());
+  localStorage.setItem('saved_password', passwordInput.value);
+}
+window.addEventListener('error', (e) => setStatus(`Error: ${e.message}`));
+function authHeaders() { return { 'Authorization': `Bearer ${token}` }; }
+
+async function api(path, options={}) {
+  const res = await fetch(path, options);
+  const text = await res.text();
+  let data = {};
+  try { data = text ? JSON.parse(text) : {}; } catch {}
+  if (!res.ok) {
+    const detail = Array.isArray(data.detail) ? data.detail.map(d => d.msg || JSON.stringify(d)).join(', ') : data.detail;
+    throw new Error(detail || text || `Request failed (${res.status})`);
+  }
+  return data;
+}
+
+function renderGroups(groups) {
+  groupsEl.innerHTML = '';
+  groups.forEach(g => {
+    const b = document.createElement('button');
+    b.textContent = g.name + (g.is_broadcast ? ' 📢' : '');
+    b.style.width = '100%';
+    b.style.marginBottom = '6px';
+    b.onclick = async () => {
+      currentGroupId = g.id;
+      groupTitleEl.textContent = `Conversation: ${g.name}`;
+      await loadMessages();
+    };
+    groupsEl.appendChild(b);
+  });
+}
+
+async function loadMembers() {
+  if (!isAdmin) return;
+  const users = await api('/api/admin/users', { headers: authHeaders() });
+  renderMembers(users);
+}
+
+function renderMembers(users) {
+  membersListEl.innerHTML = '';
+  users.forEach(u => {
+    const row = document.createElement('div');
+    row.className = 'panel';
+    row.style.marginBottom = '6px';
+    row.innerHTML = `<div><strong>${u.username}</strong>${u.is_admin ? ' (admin)' : ''}</div>`;
+
+    if (!u.is_admin) {
+      const resetBtn = document.createElement('button');
+      resetBtn.textContent = 'Reset password';
+      resetBtn.style.width = '100%';
+      resetBtn.style.marginTop = '6px';
+      resetBtn.onclick = async () => {
+        const np = prompt(`New password for ${u.username}`);
+        if (!np) return;
+        await api(`/api/admin/users/${u.id}/reset-password`, { method:'POST', headers:{'Content-Type':'application/json', ...authHeaders()}, body: JSON.stringify({ new_password: np }) });
+        setStatus(`Password reset for ${u.username}`);
+      };
+
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = 'Remove user';
+      removeBtn.style.width = '100%';
+      removeBtn.style.marginTop = '6px';
+      removeBtn.onclick = async () => {
+        if (!confirm(`Remove ${u.username}?`)) return;
+        await api(`/api/admin/users/${u.id}`, { method:'DELETE', headers: authHeaders() });
+        setStatus(`${u.username} removed`);
+        await loadMembers();
+      };
+      row.appendChild(resetBtn);
+      row.appendChild(removeBtn);
+    }
+    membersListEl.appendChild(row);
+  });
+
+}
+
+function renderMessage(m) {
+  if (m.group_id !== currentGroupId) return;
+  const d = document.createElement('div');
+  d.className = 'msg';
+  if (m.parent_id) d.style.marginLeft = '20px';
+  let html = `<strong>${m.username}</strong> <small>${new Date(m.created_at).toLocaleString()}</small>`;
+  if (m.parent_id) html += ` <small>↪ reply to #${m.parent_id}</small>`;
+  html += '<br/>';
+  if (m.text) html += `<span>${m.text}</span>`;
+  if (m.audio_url) html += `<audio controls src="${m.audio_url}"></audio>`;
+  if (m.transcript) html += `<div><small>Transcript: ${m.transcript}</small></div>`;
+  html += `<div><button data-reply="${m.id || ''}">Reply</button></div>`;
+  d.innerHTML = html;
+  d.querySelector('button')?.addEventListener('click', () => {
+    replyToId = m.id || null;
+    replyInfoEl.textContent = replyToId ? `Replying to #${replyToId}` : '';
+  });
+  messagesEl.appendChild(d);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+async function loadMessages() {
+  if (!currentGroupId) return;
+  messagesEl.innerHTML = '';
+  const history = await api(`/api/messages?group_id=${currentGroupId}`, { headers: authHeaders() });
+  history.forEach(renderMessage);
+}
+
+async function setupPush() {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  const reg = await navigator.serviceWorker.register('/static/sw.js');
+  const cfg = await api('/api/config');
+  if (!cfg.vapidPublicKey) return;
+  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(cfg.vapidPublicKey) });
+  await api('/api/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders() }, body: JSON.stringify(sub) });
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from([...atob(base64)].map(char => char.charCodeAt(0)));
+}
+
+async function openSocket() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`);
+  ws.onmessage = ev => renderMessage(JSON.parse(ev.data));
+  ws.onopen = () => setStatus('Realtime connected');
+  ws.onclose = () => setStatus('Realtime disconnected');
+}
+
+async function enterApp(username, adminFlag) {
+  isAdmin = adminFlag;
+  document.getElementById('welcome').textContent = `Hi ${username}`;
+  authCard.style.display = 'none';
+  chatCard.style.display = 'grid';
+  document.getElementById('inviteBtn').style.display = isAdmin ? 'inline-block' : 'none';
+  document.getElementById('createGroupBtn').style.display = isAdmin ? 'inline-block' : 'none';
+  adminPanelEl.style.display = isAdmin ? 'block' : 'none';
+
+  const groups = await api('/api/groups', { headers: authHeaders() });
+  renderGroups(groups);
+  currentGroupId = groups[0]?.id || null;
+  groupTitleEl.textContent = currentGroupId ? `Conversation: ${groups[0].name}` : 'No groups yet';
+  await loadMessages();
+  await openSocket();
+  await setupPush();
+  if (isAdmin) await loadMembers();
+}
+
+document.getElementById('loginBtn').onclick = async () => {
+  try {
+    const body = { username: usernameInput.value.trim().toLowerCase(), password: passwordInput.value };
+    const data = await api('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    token = data.token; localStorage.setItem('token', token); localStorage.setItem('username', data.username); saveRememberedDetails();
+    await enterApp(data.username, data.is_admin);
+  } catch (e) { setStatus(e.message); }
+};
+
+document.getElementById('registerBtn').onclick = async () => {
+  try {
+    const ownerKey = ownerKeyInput.value.trim();
+    if (hasUsers && !inviteInput.value.trim() && !ownerKey) { setStatus('Invite code required (or owner setup key).'); return; }
+    const body = { username: usernameInput.value.trim().toLowerCase(), password: passwordInput.value, invite_code: inviteInput.value.trim() || null, owner_key: ownerKey || null };
+    const data = await api('/api/register', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+    token = data.token; localStorage.setItem('token', token); localStorage.setItem('username', data.username); saveRememberedDetails();
+    await enterApp(data.username, data.is_admin);
+  } catch (e) { setStatus(e.message); }
+};
+
+document.getElementById('sendBtn').onclick = () => {
+  const txt = document.getElementById('textInput').value.trim();
+  if (!txt || !ws || !currentGroupId) return;
+  ws.send(JSON.stringify({ text: txt, group_id: currentGroupId, parent_id: replyToId }));
+  document.getElementById('textInput').value = '';
+  replyToId = null;
+  replyInfoEl.textContent = '';
+};
+
+document.getElementById('inviteBtn').onclick = async () => {
+  try {
+    const out = await api('/api/invites', { method:'POST', headers: authHeaders() });
+    document.getElementById('inviteOut').innerText = `Invite code: ${out.code}`;
+  } catch (e) { setStatus(e.message); }
+};
+
+document.getElementById('createGroupBtn').onclick = async () => {
+  const name = prompt('Group name');
+  if (!name) return;
+  const isBroadcast = confirm('Broadcast group? (Only admins should post)');
+  try {
+    await api('/api/groups', { method:'POST', headers:{'Content-Type':'application/json', ...authHeaders()}, body: JSON.stringify({ name, is_broadcast: isBroadcast })});
+    const groups = await api('/api/groups', { headers: authHeaders() });
+    renderGroups(groups);
+  } catch (e) { setStatus(e.message); }
+};
+
+document.getElementById('recBtn').onclick = async () => {
+  if (!currentGroupId) { setStatus('Choose a group first'); return; }
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    chunks = [];
+    mediaRecorder = new MediaRecorder(stream);
+    mediaRecorder.ondataavailable = e => chunks.push(e.data);
+    mediaRecorder.onstop = async () => {
+      const blob = new Blob(chunks, { type: 'audio/webm' });
+      const form = new FormData();
+      form.append('file', blob, 'voice.webm');
+      form.append('group_id', String(currentGroupId));
+      form.append('transcript', document.getElementById('textInput').value || '');
+      if (replyToId) form.append('parent_id', String(replyToId));
+      await fetch('/api/upload-audio', { method:'POST', headers: authHeaders(), body: form });
+      document.getElementById('textInput').value = '';
+    };
+    mediaRecorder.start();
+    setStatus('Recording... click again to stop');
+    return;
+  }
+  mediaRecorder.stop();
+  setStatus('Uploading voice note...');
+};
+
+document.getElementById('sttBtn').onclick = () => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { setStatus('Voice-to-text not supported on this browser. Use Chrome/Edge over HTTPS.'); return; }
+  const recog = new SR();
+  recog.lang = 'en-US';
+  recog.onresult = (e) => { document.getElementById('textInput').value = e.results[0][0].transcript; setStatus('Voice converted to text'); };
+  recog.onerror = (e) => setStatus(`Voice-to-text error: ${e.error}`);
+  recog.start();
+};
+
+document.getElementById('logoutBtn').onclick = () => {
+  localStorage.removeItem('token');
+  token = '';
+  location.reload();
+};
+
+async function initAuthHints() {
+  try {
+    const data = await api('/api/bootstrap');
+    hasUsers = data.has_users;
+    inviteInput.placeholder = hasUsers ? 'Invite code required (ask admin), or use owner setup key' : 'No invite needed for first account';
+    if (!hasUsers) setStatus('Create the first account with Register (no invite needed).');
+  } catch (e) {
+    setStatus(`Backend check failed: ${e.message}`);
+  }
+}
+
+async function autoLogin() {
+  if (!token) return;
+  try {
+    const me = await api('/api/me', { headers: authHeaders() });
+    await enterApp(me.username, me.is_admin);
+  } catch {
+    localStorage.removeItem('token');
+  }
+}
+
+loadRememberedDetails();
+initAuthHints();
+autoLogin();
