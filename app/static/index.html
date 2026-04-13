@@ -10,9 +10,9 @@
   <style>
     :root {
       --bg: #09090b;
-      --bg-soft: #18181b;
-      --card: rgba(24, 24, 27, 0.7);
-      --card-border: rgba(255, 255, 255, 0.08);
+      --bg-soft: color-mix(in srgb, var(--text) 4%, var(--bg));
+      --card: color-mix(in srgb, var(--text) 6%, var(--bg));
+      --card-border: color-mix(in srgb, var(--text) 12%, transparent);
       --text: #f4f4f5;
       --muted: #a1a1aa;
       --primary: #ffffff;
@@ -88,16 +88,16 @@
     }
     input::placeholder { color: var(--muted); }
     button {
-      background: rgba(255,255,255,0.06);
-      color: var(--text);
-      border: 1px solid var(--card-border);
+      background: color-mix(in srgb, currentColor 8%, transparent);
+      color: inherit;
+      border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
       cursor: pointer;
       font-weight: 500;
       transition: all .15s ease;
       backdrop-filter: blur(8px);
     }
-    button:hover { background: rgba(255,255,255,0.12); transform: translateY(-1px); }
-    button:active { transform: translateY(0); background: rgba(255,255,255,0.04); }
+    button:hover { background: color-mix(in srgb, currentColor 15%, transparent); transform: translateY(-1px); }
+    button:active { transform: translateY(0); background: color-mix(in srgb, currentColor 4%, transparent); }
     #sendBtn, #loginBtn, #registerBtn {
        background: var(--text);
        color: var(--bg);
@@ -212,7 +212,7 @@
     </div>
   </div>
 
-  <div class="card" id="settingsCard" style="display:none; max-width:500px; margin:0 auto;">
+  <div class="card" id="settingsCard" style="display:none; max-width:840px; margin:0 auto; width:100%;">
     <div class="panel">
       <h3 style="margin-top:0;">⚙️ Settings</h3>
       <div style="margin-top:8px"><small id="welcome"></small></div>
