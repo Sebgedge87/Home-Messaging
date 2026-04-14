@@ -237,8 +237,12 @@
         <strong>Conversations</strong>
         <div id="groupsList" style="margin-top:8px"></div>
         <button id="createGroupBtn" style="display:none; width:100%; margin-top:12px;">+ Create Group</button>
-  <div id="chatCard" style="display:none">
-      <div class="card">
+        
+        <strong style="display:block; margin-top:24px;">Contacts</strong>
+        <div id="contactsList" style="margin-top:12px"></div>
+      </div>
+
+      <div style="position:relative; display:flex; flex-direction:column; overflow:hidden;">
         <div style="display:flex; justify-content:space-between; align-items:center;">
           <h2 id="groupTitle">Conversation</h2>
           <div style="display:flex; gap:8px;">
@@ -246,6 +250,7 @@
              <button id="inviteBtn" style="display:none">Create Invite</button>
           </div>
         </div>
+        <div id="inviteOut" style="margin-bottom:8px;"></div>
         <div id="messages" style="height:500px; overflow-y:auto; margin-bottom:16px; display:flex; flex-direction:column; gap:8px; padding-right:8px;"></div>
         <small id="replyInfo"></small>
         
@@ -268,8 +273,6 @@
           <emoji-picker id="emojiPicker" style="display:none; position:absolute; bottom:100%; right:0; z-index:100; --background:var(--bg-soft); --border-color:var(--card-border); margin-bottom:8px;"></emoji-picker>
         </div>
         <small id="status" style="margin-top:8px; text-align:center;"></small>
-      </div>
-
       </div>
     </div>
   </div>
