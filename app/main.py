@@ -325,7 +325,7 @@ def get_visible_group_ids(conn: sqlite3.Connection, user: dict[str, Any]) -> set
 
 @app.get("/")
 def root() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+    return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"})
 
 
 @app.get("/health")
