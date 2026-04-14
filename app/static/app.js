@@ -7,6 +7,11 @@ let isAdmin = false;
 let currentGroupId = null;
 let replyToId = null;
 
+let unreadGroups = new Set();
+let wsReconnectTimer = null;
+let cachedGroups = [];
+let isWsReconnecting = false;
+
 let myUsername = localStorage.getItem('username') || '';
 let myThemeColor = '#5b8cff';
 let myWallpaper = '';
@@ -75,8 +80,7 @@ if (navSettingsBtn && navChatBtn) {
     navSettingsBtn.style.display = 'block';
     await loadContacts();
     try {
-      const groups = await api('/api/groups', { headers: authHeaders() });
-      renderGroups(groups);
+      await refreshGroups();
     } catch(e) {}
   };
 }
@@ -169,18 +173,35 @@ async function api(path, options={}) {
   return data;
 }
 
+async function refreshGroups() {
+  try {
+    cachedGroups = await api('/api/groups', { headers: authHeaders() });
+    renderGroups(cachedGroups);
+  } catch(e) {}
+}
+
 function renderGroups(groups) {
+  cachedGroups = groups;
   groupsEl.innerHTML = '';
   groups.forEach(g => {
     const b = document.createElement('button');
     b.textContent = g.name + (g.is_broadcast ? ' 📢' : '');
     b.style.width = '100%';
     b.style.marginBottom = '6px';
+    if (g.id === currentGroupId) {
+       b.style.background = 'var(--text)';
+       b.style.color = 'var(--bg)';
+    } else if (unreadGroups.has(g.id)) {
+       b.style.fontWeight = 'bold';
+       b.style.border = '2px solid var(--danger)';
+    }
     b.onclick = async () => {
       currentGroupId = g.id;
+      unreadGroups.delete(g.id);
       groupTitleEl.textContent = `Conversation: ${g.name}`;
       document.getElementById('deleteGroupBtn').style.display = (isAdmin && g.name !== 'General' && !g.name.includes(':')) ? 'inline-block' : 'none';
       await loadMessages();
+      renderGroups(cachedGroups);
     };
     groupsEl.appendChild(b);
   });
@@ -211,12 +232,12 @@ function renderContacts(contacts) {
     b.onclick = async () => {
       try {
         const res = await api(`/api/direct/${c.id}`, { method: 'POST', headers: authHeaders() });
-        const groups = await api('/api/groups', { headers: authHeaders() });
-        renderGroups(groups);
+        await refreshGroups();
         currentGroupId = res.id;
-        const groupObj = groups.find(g => g.id === currentGroupId);
+        const groupObj = cachedGroups.find(g => g.id === currentGroupId);
         groupTitleEl.textContent = `Conversation: ${groupObj ? groupObj.name : 'Direct'}`;
         await loadMessages();
+        renderGroups(cachedGroups);
       } catch(e) {
         setStatus(`Failed to start direct message: ${e.message}`);
       }
@@ -349,6 +370,7 @@ function showToast(title, body) {
 }
 
 async function openSocket() {
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`);
   
@@ -376,11 +398,32 @@ async function openSocket() {
          showToast(`New message from ${m.username}`, snippet);
       }
       
-      if (m.group_id === currentGroupId) renderMessage(m);
+      if (m.group_id === currentGroupId) {
+         renderMessage(m);
+      } else if (m.username !== myUsername) {
+         unreadGroups.add(m.group_id);
+      }
+      refreshGroups();
     }
   };
-  ws.onopen = () => setStatus('Realtime connected');
-  ws.onclose = () => setStatus('Realtime disconnected');
+  ws.onopen = async () => {
+      setStatus('Realtime connected');
+      if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+      if (isWsReconnecting) {
+         if (currentGroupId) await loadMessages();
+         await refreshGroups();
+      }
+      isWsReconnecting = false;
+  };
+  ws.onclose = () => {
+      setStatus('Realtime disconnected. Reconnecting...');
+      isWsReconnecting = true;
+      wsReconnectTimer = setTimeout(openSocket, 3000);
+      ws = null;
+  };
+  ws.onerror = () => {
+      if (ws) ws.close();
+  };
 }
 
 async function enterApp(username, adminFlag, theme, wallpaper, fontFamily, fontSize, themeBg, themeText, themeTheirs, bgOpacity) {
@@ -399,11 +442,11 @@ async function enterApp(username, adminFlag, theme, wallpaper, fontFamily, fontS
   document.getElementById('broadcastBtn').style.display = isAdmin ? 'inline-block' : 'none';
   adminPanelEl.style.display = isAdmin ? 'block' : 'none';
 
-  const groups = await api('/api/groups', { headers: authHeaders() });
-  renderGroups(groups);
+  await refreshGroups();
   await loadContacts();
-  currentGroupId = groups[0]?.id || null;
-  groupTitleEl.textContent = currentGroupId ? `Conversation: ${groups[0].name}` : 'No groups yet';
+  currentGroupId = cachedGroups[0]?.id || null;
+  groupTitleEl.textContent = currentGroupId ? `Conversation: ${cachedGroups[0] ? cachedGroups[0].name : 'No groups yet'}` : 'No groups yet';
+  if (currentGroupId) renderGroups(cachedGroups);
   await loadMessages();
   await openSocket();
   await setupPush();
@@ -675,8 +718,7 @@ document.getElementById('builderOk').onclick = async () => {
       }
     }
     document.getElementById('groupBuilderOverlay').style.display = 'none';
-    const groups = await api('/api/groups', { headers: authHeaders() });
-    renderGroups(groups);
+    await refreshGroups();
   } catch (e) { setStatus(e.message); }
   btn.textContent = 'Create Group';
 };
