@@ -78,6 +78,10 @@ if (navSettingsBtn && navChatBtn) {
     chatCard.style.display = 'block';
     navChatBtn.style.display = 'none';
     navSettingsBtn.style.display = 'block';
+    
+    // Make sure we go straight to conversation list on mobile when toggling Nav tabs
+    document.getElementById('chatGrid')?.classList.remove('show-chat');
+    
     await loadContacts();
     try {
       await refreshGroups();
@@ -145,6 +149,13 @@ const replyInfoEl = document.getElementById('replyInfo');
 const adminPanelEl = document.getElementById('adminPanel');
 const membersListEl = document.getElementById('membersList');
 const rememberMeEl = document.getElementById('rememberMe');
+const mobileBackBtn = document.getElementById('mobileBackBtn');
+
+if (mobileBackBtn) {
+  mobileBackBtn.onclick = () => {
+    document.getElementById('chatGrid').classList.remove('show-chat');
+  };
+}
 
 function setStatus(t) { if (statusEl) statusEl.textContent = t; if (authStatusEl) authStatusEl.textContent = t; }
 function loadRememberedDetails() {
@@ -202,6 +213,7 @@ function renderGroups(groups) {
       document.getElementById('deleteGroupBtn').style.display = (isAdmin && g.name !== 'General' && !g.name.includes(':')) ? 'inline-block' : 'none';
       await loadMessages();
       renderGroups(cachedGroups);
+      document.getElementById('chatGrid').classList.add('show-chat');
     };
     groupsEl.appendChild(b);
   });
@@ -238,6 +250,7 @@ function renderContacts(contacts) {
         groupTitleEl.textContent = `Conversation: ${groupObj ? groupObj.name : 'Direct'}`;
         await loadMessages();
         renderGroups(cachedGroups);
+        document.getElementById('chatGrid').classList.add('show-chat');
       } catch(e) {
         setStatus(`Failed to start direct message: ${e.message}`);
       }

@@ -20,6 +20,8 @@ from pywebpush import WebPushException, webpush
 from cryptography.fernet import Fernet
 import base64
 import hashlib
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives import serialization
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR))
@@ -31,8 +33,35 @@ DB_PATH = DATA_DIR / "messaging.db"
 APP_SECRET_KEY = os.getenv("APP_SECRET_KEY", "dev-insecure-change-me")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_MINUTES = 60 * 24 * 14
-VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "")
-VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "")
+
+def ensure_vapid_keys() -> tuple[str, str]:
+    vapid_file = DATA_DIR / "vapid.json"
+    if vapid_file.exists():
+        d = json.loads(vapid_file.read_text())
+        return d.get("VAPID_PUBLIC_KEY", ""), d.get("VAPID_PRIVATE_KEY", "")
+        
+    private_key = ec.generate_private_key(ec.SECP256R1())
+    public_key = private_key.public_key()
+    pub_bytes = public_key.public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    priv_bytes = private_key.private_numbers().private_value.to_bytes(32, 'big')
+    
+    def strip_padding(b: bytes) -> str:
+        return base64.urlsafe_b64encode(b).decode('utf-8').rstrip('=')
+        
+    pub_b64 = strip_padding(pub_bytes)
+    priv_b64 = strip_padding(priv_bytes)
+    
+    vapid_file.write_text(json.dumps({"VAPID_PUBLIC_KEY": pub_b64, "VAPID_PRIVATE_KEY": priv_b64}))
+    return pub_b64, priv_b64
+
+env_pub = os.getenv("VAPID_PUBLIC_KEY", "")
+env_priv = os.getenv("VAPID_PRIVATE_KEY", "")
+if env_pub and env_priv:
+    VAPID_PUBLIC_KEY = env_pub
+    VAPID_PRIVATE_KEY = env_priv
+else:
+    VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY = ensure_vapid_keys()
+
 VAPID_CLAIMS_SUBJECT = os.getenv("VAPID_CLAIMS_SUBJECT", "mailto:admin@example.com")
 OWNER_SETUP_KEY = os.getenv("OWNER_SETUP_KEY", "")
 

@@ -201,12 +201,19 @@
     }
     
     .chat-grid { display: grid; grid-template-columns: 240px 1fr; gap: 24px; }
-    .sidebar { border-right: 1px solid var(--card-border); padding-right: 20px; }
+    .sidebar { border-right: 1px solid var(--card-border); padding-right: 20px; transition: transform 0.2s; }
+    .chat-area { display: flex; flex-direction: column; overflow: hidden; position: relative; }
     .panel { background:var(--bg-soft); border:1px solid var(--card-border); border-radius:12px; padding:16px; }
+    .mobile-back-btn { display: none; margin-right: 4px; padding: 0 10px; background: none; border: none; font-size: 26px; font-weight: bold; cursor: pointer; color: var(--text); align-items: center; justify-content: center; }
     @media (max-width: 768px) { 
       .chat-grid { grid-template-columns: 1fr; }
       .wrap { padding: 16px 12px 32px; }
-      #messages { height: 60vh; }
+      #messages { height: calc(100vh - 200px); }
+      .chat-area { display: none; }
+      .sidebar { display: block; }
+      .chat-grid.show-chat .sidebar { display: none; }
+      .chat-grid.show-chat .chat-area { display: flex; }
+      .mobile-back-btn { display: inline-flex !important; flex-shrink: 0; }
     }
   </style>
 </head>
@@ -242,9 +249,12 @@
         <div id="contactsList" style="margin-top:12px"></div>
       </div>
 
-      <div style="position:relative; display:flex; flex-direction:column; overflow:hidden;">
+      <div class="chat-area" id="chatArea">
         <div style="display:flex; justify-content:space-between; align-items:center;">
-          <h2 id="groupTitle">Conversation</h2>
+          <div style="display:flex; align-items:center;">
+            <button id="mobileBackBtn" class="mobile-back-btn">‹</button>
+            <h2 id="groupTitle">Conversation</h2>
+          </div>
           <div style="display:flex; gap:8px;">
              <button id="deleteGroupBtn" style="display:none; background:var(--danger); color:white; border:none; padding:6px 12px; font-size:13px;">Delete Room 🗑️</button>
              <button id="inviteBtn" style="display:none">Create Invite</button>
